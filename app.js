@@ -549,6 +549,7 @@ function renderModule(m) {
   }
 }
 function switchModule(m) {
+  if (m === "reading") { window.location.href = "reading.html"; return; }
   currentModule = m;
   $$(".nav-item").forEach(x => x.classList.remove("active"));
   $$(".tab-item").forEach(x => x.classList.remove("active"));
