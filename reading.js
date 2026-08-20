@@ -33,7 +33,7 @@ function saveJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); 
 let LIB = loadJSON(K_LIB, []);
 let VOCAB = loadJSON(K_VOCAB, []);
 let CHECKINS = loadJSON(K_CHECK, []);
-let SETTINGS = loadJSON(K_SET, { accent: "en-US", rate: 1, engine: "auto", useLLMForTranslation: false, llm: { base: "", key: "", model: "" } });
+let SETTINGS = loadJSON(K_SET, { accent: "en-US", rate: 1, pitch: 1, engine: "auto", useLLMForTranslation: false, llm: { base: "", key: "", model: "" } });
 
 /* 当前正在阅读的文章（内存态） */
 let CURRENT = null;          // {id,title,tags,notes,raw,paragraphs,createdAt,updatedAt,annotations}
@@ -195,10 +195,14 @@ function openWordPop(word, x, y, display) {
   $("#popMean").textContent = "";
   $("#popExtra").innerHTML = '<div class="rd-pop-loading">正在加载释义与拓展…</div>';
   pop.style.display = "block";
-  const pw = 320, ph = 340;
+  // 让浏览器先排版，再取实际宽高做边界保护
+  const rect = pop.getBoundingClientRect();
+  const pw = Math.min(rect.width || 300, window.innerWidth - 16);
+  const ph = rect.height || 340;
   let left = x + 12, top = y + 12;
   if (left + pw > window.innerWidth - 8) left = Math.max(8, x - pw - 12);
   if (top + ph > window.innerHeight - 8) top = Math.max(8, y - ph - 12);
+  if (left < 8) left = 8;
   pop.style.left = left + "px"; pop.style.top = top + "px";
 
   const sentence = sentencesInArticle(word)[0] || "";
@@ -265,8 +269,13 @@ let CURRENT_VOICE_MODE = "edge"; // 'edge' 或 'webspeech'，决定音色下拉�
 function isWebSpeechForced() { return SETTINGS.engine === "webspeech"; }
 function preferredEngine() { return isWebSpeechForced() ? "webspeech" : "auto"; }
 function actualVoiceMode() {
-  if (isWebSpeechForced() || TTS.engine === "webspeech") return "webspeech";
+  if (isWebSpeechForced() || TTS.engine === "webspeech" || TTS.fallbackToWebSpeech) return "webspeech";
   return "edge";
+}
+function setEngineFallback(fallback) {
+  TTS.fallbackToWebSpeech = !!fallback;
+  populateVoices();
+  updateEngineUI();
 }
 
 function populateVoices() {
@@ -277,9 +286,17 @@ function populateVoices() {
 
   if (mode === "webspeech") {
     // 系统语音：按口音过滤，名字就是 label
-    const list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith(acc.toLowerCase()));
+    if (!WEBSPEECH_VOICES.length) {
+      sel.innerHTML = '<option value="">系统语音加载中…</option>';
+      sel.disabled = false; return;
+    }
+    let list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith(acc.toLowerCase()));
+    // 找不到精确口音时，回退到同一语系（en-US↔en-GB 互备）
+    if (!list.length && acc.toLowerCase() === "en-us") list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith("en-gb"));
+    if (!list.length && acc.toLowerCase() === "en-gb") list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith("en-us"));
+    if (!list.length) list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith("en"));
     if (!list.length) {
-      sel.innerHTML = '<option value="">当前系统无对应口音语音</option>';
+      sel.innerHTML = '<option value="">当前系统无英文语音</option>';
       sel.disabled = true; return;
     }
     sel.disabled = false;
@@ -294,6 +311,7 @@ function populateVoices() {
     if (SETTINGS.voice && list.some(v => v.id === SETTINGS.voice)) sel.value = SETTINGS.voice;
     else { sel.value = list[0].id; SETTINGS.voice = list[0].id; }
   }
+  saveJSON(K_SET, SETTINGS);
   updateEngineUI();
 }
 
@@ -322,11 +340,13 @@ function rateToPct(rate) {
   const p = Math.round((parseFloat(rate) - 1) * 100);
   return (p >= 0 ? "+" : "") + p + "%";
 }
-function buildSSML(text, voice, ratePct) {
+function buildSSML(text, voice, ratePct, pitchPct) {
   const safe = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const lang = voice.indexOf("en-GB") === 0 ? "en-GB" : "en-US";
+  // pitchPct 如 +10%/-10%；Edge 支持相对音高
+  const pitch = pitchPct || "+0Hz";
   return "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='" + lang + "'>" +
-    "<voice name='" + voice + "'><prosody rate='" + ratePct + "' pitch='+0Hz' volume='+0%'>" + safe + "</prosody></voice></speak>";
+    "<voice name='" + voice + "'><prosody rate='" + ratePct + "' pitch='" + pitch + "' volume='+0%'>" + safe + "</prosody></voice></speak>";
 }
 function parseWsHeaders(str) {
   const i = str.indexOf("\r\n\r\n");
@@ -360,6 +380,8 @@ function edgeSynthesize(text) {
       const ts = new Date().toISOString().replace(/\.\d+Z$/, "Z");
       const voice = currentEdgeVoice();
       const ratePct = rateToPct($("#rateRange") ? $("#rateRange").value : "1");
+      const pitchVal = parseFloat($("#pitchRange") ? $("#pitchRange").value : "1") || 1;
+      const pitchPct = (pitchVal === 1 ? "+0Hz" : (pitchVal > 1 ? "+" + Math.round((pitchVal - 1) * 100) + "%" : Math.round((pitchVal - 1) * 100) + "%"));
       let done = false;
       timeout = setTimeout(() => { try { if (ws.readyState === 1) ws.close(); } catch (_) {} finish(false, new Error("Edge TTS 超时（网络/跨域可能受限）")); }, 20000);
 
@@ -367,7 +389,7 @@ function edgeSynthesize(text) {
         try {
           ws.send("X-Timestamp:" + ts + "\r\nContent-Type:application/json\r\nPath:speech.config\r\n\r\n" +
             JSON.stringify({ context: { synthesis: { audio: { metadataOptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: "audio-24khz-48kbitrate-mono-mp3" } } } }));
-          ws.send("X-RequestId:" + connId + "\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:" + ts + "\r\nPath:ssml\r\n\r\n" + buildSSML(text, voice, ratePct));
+          ws.send("X-RequestId:" + connId + "\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:" + ts + "\r\nPath:ssml\r\n\r\n" + buildSSML(text, voice, ratePct, pitchPct));
         } catch (e) { finish(false, e); }
       };
       ws.onmessage = (ev) => {
@@ -408,23 +430,33 @@ function edgeSynthesize(text) {
   });
 }
 
-let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0, lastText: "", lastOpts: null, lastParagraphIdx: -1 };
+let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0, lastText: "", lastOpts: null, lastParagraphIdx: -1, fallbackToWebSpeech: false };
+let TRANSLATION_CANCEL = false;
+function shouldCancelTranslation() { return TRANSLATION_CANCEL; }
+function cancelTranslation() { TRANSLATION_CANCEL = true; }
 function clearHi() { if (TTS.curHi) { TTS.curHi.classList.remove("hl"); TTS.curHi = null; } }
 function updateEngineUI() {
   const mode = actualVoiceMode();
+  const forced = isWebSpeechForced();
   const hint = $("#engineHint");
   if (hint) {
     if (mode === "webspeech") {
-      hint.textContent = "当前使用浏览器内置朗读（系统语音）。音色下拉已切换为系统可用语音。";
+      hint.textContent = forced
+        ? "已强制使用浏览器内置朗读，音色下拉显示系统可用语音。"
+        : "Edge TTS 当前不可用，已自动回退到浏览器内置朗读。";
     } else {
       hint.textContent = "当前使用 Edge TTS 自然语音。若网络受限失败，会自动回退为内置朗读。";
     }
   }
   const ttsEngine = $("#ttsEngine");
   if (ttsEngine) {
-    ttsEngine.textContent = mode === "webspeech"
-      ? "🔊 引擎：浏览器内置朗读（系统语音）"
-      : "🔊 引擎：Edge TTS 自然语音";
+    if (mode === "webspeech") {
+      ttsEngine.textContent = forced
+        ? "🔊 引擎：浏览器内置朗读（强制）"
+        : "🔊 引擎：浏览器内置朗读（Edge 回退）";
+    } else {
+      ttsEngine.textContent = "🔊 引擎：Edge TTS 自然语音";
+    }
   }
 }
 function saveLLMSettings() {
@@ -451,22 +483,25 @@ async function speakText(text, opts) {
   if (isWebSpeechForced() || text.length > 5000 || typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle) {
     return speakTextWebSpeech(text, opts);
   }
+  // 每次新播放先尝试 Edge，重置回退标记
+  TTS.fallbackToWebSpeech = false;
+  updateEngineUI();
   try {
     if (opts.highlight) await playArticleEdge(reqId);
     else {
       const d = await edgeSynthesize(text);
       if (reqId && TTS.reqId !== reqId) return;
-      TTS.engine = "edge"; TTS.audio = new Audio(d.audioUrl);
+      TTS.engine = "edge"; TTS.fallbackToWebSpeech = false; TTS.audio = new Audio(d.audioUrl);
       TTS.audio.onended = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
       TTS.audio.onerror = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
       await TTS.audio.play(); TTS.state = "playing";
     }
   } catch (e) {
     console.warn("Edge TTS 不可用，回退内置朗读：", e.message);
-    if (opts.highlight) toast("Edge TTS 当前不可用，已切换为内置朗读");
     if (reqId && TTS.reqId !== reqId) return;
-    // 回退后切换为系统语音列表，让用户能选择当前可用的音色
-    populateVoices();
+    // 标记回退、刷新 UI（音色下拉切系统语音）、再用内置朗读
+    setEngineFallback(true);
+    toast("Edge TTS 当前不可用，已切换为内置朗读");
     speakTextWebSpeech(text, opts);
   }
 }
@@ -482,7 +517,7 @@ function restartTTSIfPlaying() {
 async function playArticleEdge(reqId) {
   const data = await edgeSynthesize(getSpokenText());
   if (reqId && TTS.reqId !== reqId) { try { URL.revokeObjectURL(data.audioUrl); } catch (_) {} return; }
-  TTS.engine = "edge"; TTS.audio = new Audio(data.audioUrl);
+  TTS.engine = "edge"; TTS.fallbackToWebSpeech = false; TTS.audio = new Audio(data.audioUrl);
   TTS.boundaries = data.boundaries.slice().sort((a, b) => a.offsetSec - b.offsetSec);
   TTS.curBoundaryIdx = -1;
   const audio = TTS.audio;
@@ -501,14 +536,19 @@ async function playArticleEdge(reqId) {
 function loadVoices() {
   try {
     WEBSPEECH_VOICES = speechSynthesis.getVoices() || [];
-    if (actualVoiceMode() === "webspeech") populateVoices();
+    populateVoices();
+    updateEngineUI();
   } catch (e) { WEBSPEECH_VOICES = []; }
 }
 if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
 function pickVoice(accent) {
   const chosen = currentWebSpeechVoice();
   if (chosen) return chosen;
-  return WEBSPEECH_VOICES.find(v => v.lang === accent) || WEBSPEECH_VOICES.find(v => v.lang && v.lang.startsWith(accent.slice(0, 2))) || null;
+  const exact = WEBSPEECH_VOICES.find(v => v.lang === accent);
+  if (exact) return exact;
+  const primary = accent.slice(0, 2).toLowerCase();
+  return WEBSPEECH_VOICES.find(v => (v.lang || "").toLowerCase().startsWith(primary)) ||
+         WEBSPEECH_VOICES.find(v => (v.lang || "").toLowerCase().startsWith("en")) || null;
 }
 
 function speakTextWebSpeech(text, opts) {
@@ -516,6 +556,7 @@ function speakTextWebSpeech(text, opts) {
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = parseFloat($("#rateRange") ? $("#rateRange").value : "1") || 1;
+  u.pitch = parseFloat($("#pitchRange") ? $("#pitchRange").value : "1") || 1;
   const accent = $("#accentSel") ? $("#accentSel").value : SETTINGS.accent;
   const v = pickVoice(accent); if (v) u.voice = v;
   if (opts && opts.highlight) {
@@ -722,47 +763,81 @@ function longSentences() {
   const all = (CURRENT.raw.replace(/\s+/g, " ").match(/[^.!?]+[.!?]*/g) || []).map(s => s.trim());
   return all.filter(s => s.length > 100 || (s.match(/,/g) || []).length >= 3);
 }
+function trErrorHtml(e, label) {
+  const msg = e && e.message;
+  if (msg === "CANCELLED") return '<div class="rd-ai-loading">⏹ 已取消' + label + '加载 <button class="btn sm btn-reload-tr">重新加载</button></div>';
+  if (msg === "TIMEOUT") return '<div class="rd-ai-loading">⏱ ' + label + '加载超时 <button class="btn sm btn-reload-tr">重新加载</button></div>';
+  return '<div class="rd-ai-loading">⚠️ ' + label + '加载失败：' + escapeHtml(msg || "未知错误") + ' <button class="btn sm btn-reload-tr">重新加载</button></div>';
+}
+
 async function renderTranslationAndAI() {
-  $("#trSummary").innerHTML = '<div class="rd-ai-loading">⏳ 正在翻译全文大意…</div>';
-  $("#trPara").innerHTML = '<div class="rd-ai-loading">⏳ 正在生成逐段对照…</div>';
-  $("#trAI").innerHTML = '<div class="rd-ai-loading">⏳ 正在生成主旨与长难句解析…</div>';
+  TRANSLATION_CANCEL = false;
+  const loading = (msg) => '<div class="rd-ai-loading">⏳ ' + msg + ' <button class="btn sm btn-cancel-tr">取消</button></div>';
+  $("#trSummary").innerHTML = loading("正在翻译全文大意…");
+  $("#trPara").innerHTML = loading("正在生成逐段对照…");
+  $("#trAI").innerHTML = loading("正在生成主旨与长难句解析…");
+  $$(".btn-cancel-tr").forEach(b => b.addEventListener("click", cancelTranslation));
 
-  const summaryZh = await translateLong(CURRENT.raw);
-  $("#trSummary").innerHTML = '<div class="t">📝 全文大意（意译）</div>' + escapeHtml(summaryZh);
-
-  const blocks = [];
-  for (const p of CURRENT.paragraphs) {
-    const zh = await translateAny(p, "paragraph");
-    blocks.push('<div class="rd-tr-block"><div class="rd-tr-en">' + escapeHtml(p) + '</div><div class="rd-tr-zh">' + escapeHtml(zh) + "</div></div>");
-    await new Promise(r => setTimeout(r, 120));
+  const overallTimeout = 45000; // 45 秒整体超时
+  const startTime = Date.now();
+  function checkTimeout() {
+    if (TRANSLATION_CANCEL) throw new Error("CANCELLED");
+    if (Date.now() - startTime > overallTimeout) throw new Error("TIMEOUT");
   }
-  $("#trPara").innerHTML = blocks.join("");
 
-  let mainIdea;
-  if (llmAvailable()) {
-    try { mainIdea = await llmChat("你是英语老师，请用中文用 3-5 句话概括下面英文文章的主旨，简洁、面向中文学习者。", CURRENT.raw); } catch (_) {}
+  try {
+    checkTimeout();
+    const summaryZh = await translateLong(CURRENT.raw);
+    checkTimeout();
+    $("#trSummary").innerHTML = '<div class="t">📝 全文大意（意译）</div>' + escapeHtml(summaryZh);
+  } catch (e) {
+    $("#trSummary").innerHTML = trErrorHtml(e, "全文大意");
   }
-  if (!mainIdea) mainIdea = await translate(extractiveSummary());
-  let ai = '<div class="rd-ai-card"><h4>🧠 主旨总结</h4><div class="ai-body">' + escapeHtml(mainIdea || "（无）") + "</div></div>";
 
-  const longs = longSentences();
-  if (longs.length) {
-    const items = [];
-    for (const s of longs.slice(0, 6)) {
-      let zh = "（翻译失败）";
-      if (llmAvailable()) {
-        try { zh = await llmChat("请把下面这个长难句翻译成中文，并简要说明句子结构（主谓宾/从句等），用 1-2 句话。", s) || "（翻译失败）"; } catch (_) {}
-      } else {
-        zh = await translate(s);
-      }
-      items.push('<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body"><b>' + escapeHtml(s) + "</b><div style='margin-top:6px;color:#33414f'>" + escapeHtml(zh) + "</div></div></div>");
-      await new Promise(r => setTimeout(r, 80));
+  try {
+    const blocks = [];
+    for (const p of CURRENT.paragraphs) {
+      checkTimeout();
+      const zh = await translateAny(p, "paragraph");
+      blocks.push('<div class="rd-tr-block"><div class="rd-tr-en">' + escapeHtml(p) + '</div><div class="rd-tr-zh">' + escapeHtml(zh) + "</div></div>");
+      await new Promise(r => setTimeout(r, 120));
     }
+    $("#trPara").innerHTML = blocks.join("");
+  } catch (e) {
+    $("#trPara").innerHTML = trErrorHtml(e, "逐段对照");
+  }
+
+  try {
+    checkTimeout();
+    let mainIdea;
+    if (llmAvailable()) {
+      try { mainIdea = await llmChat("你是英语老师，请用中文用 3-5 句话概括下面英文文章的主旨，简洁、面向中文学习者。", CURRENT.raw); } catch (_) {}
+    }
+    if (!mainIdea) mainIdea = await translate(extractiveSummary());
+    let ai = '<div class="rd-ai-card"><h4>🧠 主旨总结</h4><div class="ai-body">' + escapeHtml(mainIdea || "（无）") + "</div></div>";
+
+    const longs = longSentences();
+    if (longs.length) {
+      const items = [];
+      for (const s of longs.slice(0, 6)) {
+        checkTimeout();
+        let zh = "（翻译失败）";
+        if (llmAvailable()) {
+          try { zh = await llmChat("请把下面这个长难句翻译成中文，并简要说明句子结构（主谓宾/从句等），用 1-2 句话。", s) || "（翻译失败）"; } catch (_) {}
+        } else {
+          zh = await translate(s);
+        }
+        items.push('<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body"><b>' + escapeHtml(s) + "</b><div style='margin-top:6px;color:#33414f'>" + escapeHtml(zh) + "</div></div></div>");
+        await new Promise(r => setTimeout(r, 80));
+      }
     ai += items.join("");
   } else {
     ai += '<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body">本文未检测到明显长难句，继续保持～</div></div>';
   }
-  $("#trAI").innerHTML = ai;
+    $("#trAI").innerHTML = ai;
+  } catch (e) {
+    $("#trAI").innerHTML = trErrorHtml(e, "主旨与长难句解析");
+  }
 }
 
 async function llmChat(system, user) {
@@ -1015,6 +1090,37 @@ function withTimeout(promise, ms, label) {
 }
 
 /* ============================================================
+   图片预处理：限制尺寸、统一为 JPEG，提升 OCR 稳定性
+   ============================================================ */
+function preprocessImage(file, maxSide = 2000, quality = 0.92) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith("image/")) { reject(new Error("请选择图片文件")); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      if (Math.max(w, h) > maxSide) {
+        const scale = maxSide / Math.max(w, h);
+        w = Math.round(w * scale); h = Math.round(h * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      // 纯白背景，避免透明 PNG 出现黑底
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        if (!blob) reject(new Error("图片预处理失败"));
+        else resolve({ blob, width: w, height: h });
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("无法读取图片")); };
+    img.src = url;
+  });
+}
+
+/* ============================================================
    OCR 多线路重试
    - workerPath: 国内常被墙，jsDelivr/unpkg 镜像回退
    - langPath: 训练数据下载，国内慢；优先 jsDelivr GitHub 镜像
@@ -1070,7 +1176,7 @@ async function runOCRWithFallback(Tess, file, logger) {
         console.warn('OCR 线路失败(base=' + base + ', lang=' + langPath + '):', e.message);
         // 超时或训练数据相关失败 → 继续尝试下一个 langPath；worker 加载失败 → 换 base
         const msg = String(e.message || '');
-        const isLangIssue = /traineddata|language|fetch|network|timeout|CORS|load|Failed to fetch/i.test(msg);
+        const isLangIssue = /traineddata|language|fetch|network|timeout|CORS|load|Failed to fetch|creating|worker/i.test(msg);
         if (!isLangIssue) continue outer;
       } finally {
         if (worker) try { await worker.terminate(); } catch (_) {}
@@ -1078,7 +1184,7 @@ async function runOCRWithFallback(Tess, file, logger) {
     }
   }
   const detail = attempts ? '已尝试 ' + attempts + ' 条线路均不可用' : '没有可用的 OCR 线路';
-  throw lastErr || new Error(detail + '（请检查网络或改用「粘贴文本」）');
+  throw lastErr || new Error(detail + '（请检查网络、换张更清晰的图片，或改用「粘贴文本」）');
 }
 
 /* ============================================================
@@ -1104,9 +1210,18 @@ function bind() {
   });
 
   // OCR（带多 CDN 重试与显式 worker/lang 路径）
-  $("#ocrFile").addEventListener("change", async (e) => {
-    const f = e.target.files && e.target.files[0]; if (!f) return;
-    $("#ocrStatus").textContent = "⏳ 正在加载 OCR 引擎，请稍候…";
+  let lastOcrFile = null;
+  async function doOCR(file) {
+    $("#ocrStatus").textContent = "⏳ 正在读取并压缩图片…";
+    $("#btnOcrRetry").style.display = "none";
+    let processed;
+    try {
+      processed = await preprocessImage(file);
+      $("#ocrStatus").textContent = "⏳ 正在加载 OCR 引擎，请稍候…";
+    } catch (pe) {
+      $("#ocrStatus").innerHTML = "❌ 图片读取失败：" + escapeHtml(pe.message) + "<br/><small>建议换一张图片，或使用「粘贴文本」导入。</small>";
+      return;
+    }
     try {
       const Tess = await Promise.race([
         (window._loadTesseractPromise || Promise.resolve(window.Tesseract)),
@@ -1114,20 +1229,29 @@ function bind() {
       ]);
       if (!Tess) throw new Error("OCR 引擎未加载（网络不可用）。可改用「粘贴文本」方式。");
       $("#ocrStatus").textContent = "⏳ 正在识别图片文字（首次需下载识别数据，约 10 MB，请稍候）…";
-      const res = await runOCRWithFallback(Tess, f, (m) => {
+      const res = await runOCRWithFallback(Tess, processed.blob, (m) => {
         if (m.status === "recognizing text") $("#ocrStatus").textContent = "⏳ 识别中… " + Math.round((m.progress || 0) * 100) + "%";
         else if (m.status === "loading language traineddata") $("#ocrStatus").textContent = "⏳ 正在下载英文识别数据… " + Math.round((m.progress || 0) * 100) + "%";
+        else if (m.status === "loading tesseract core") $("#ocrStatus").textContent = "⏳ 正在加载 OCR 核心… " + Math.round((m.progress || 0) * 100) + "%";
       });
       $("#ocrResult").value = res.data.text;
       $("#ocrResult").style.display = "block"; $("#ocrActions").style.display = "flex";
+      $("#btnOcrRetry").style.display = "none";
       $("#ocrStatus").textContent = "✅ 识别完成，请检查并修改错字后导入。";
     } catch (err) {
       console.error(err);
       $("#ocrStatus").innerHTML = "❌ 识别失败：" + escapeHtml(err.message) +
-        "<br/><small>建议：①切换网络后重试 ②改用上方「粘贴文本」导入</small>";
+        "<br/><small>建议：①点击「重新识别」再试 ②切换网络 ③换一张文字清晰、光线充足的图片 ④改用「粘贴文本」导入</small>";
+      $("#btnOcrRetry").style.display = "inline-flex";
     }
+  }
+  $("#ocrFile").addEventListener("change", async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    lastOcrFile = f;
+    await doOCR(f);
     e.target.value = "";
   });
+  $("#btnOcrRetry").addEventListener("click", () => { if (lastOcrFile) doOCR(lastOcrFile); });
   // OCR 识别完成后 → 进入编辑预览（校对/分段），不直接进只读
   $("#btnOcrImport").addEventListener("click", () => {
     const t = $("#ocrResult").value;
@@ -1179,6 +1303,14 @@ function bind() {
   });
   $("#rateRange").addEventListener("input", () => {
     $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(2) + "x";
+    SETTINGS.rate = parseFloat($("#rateRange").value);
+    saveJSON(K_SET, SETTINGS);
+    restartTTSIfPlaying();
+  });
+  $("#pitchRange").addEventListener("input", () => {
+    $("#pitchVal").textContent = parseFloat($("#pitchRange").value).toFixed(1);
+    SETTINGS.pitch = parseFloat($("#pitchRange").value);
+    saveJSON(K_SET, SETTINGS);
     restartTTSIfPlaying();
   });
   $("#btnToggleTr").addEventListener("click", () => {
@@ -1270,6 +1402,7 @@ function bind() {
   // 设置
   $("#setAccent").value = SETTINGS.accent || "en-US";
   $("#setRate").value = String(SETTINGS.rate || 1);
+  $("#setPitch").value = String(SETTINGS.pitch || 1);
   $("#setEngine").value = SETTINGS.engine || "auto";
   $("#useLLMForTranslation").checked = !!SETTINGS.useLLMForTranslation;
   $("#llmBase").value = (SETTINGS.llm && SETTINGS.llm.base) || "";
@@ -1279,9 +1412,12 @@ function bind() {
   updateEngineUI();
   $("#setAccent").addEventListener("change", () => { SETTINGS.accent = $("#setAccent").value; saveJSON(K_SET, SETTINGS); $("#accentSel").value = SETTINGS.accent; populateVoices(); restartTTSIfPlaying(); });
   $("#setRate").addEventListener("change", () => { SETTINGS.rate = parseFloat($("#setRate").value); saveJSON(K_SET, SETTINGS); $("#rateRange").value = SETTINGS.rate; $("#rateVal").textContent = SETTINGS.rate.toFixed(2) + "x"; restartTTSIfPlaying(); });
+  $("#setPitch").addEventListener("change", () => { SETTINGS.pitch = parseFloat($("#setPitch").value); saveJSON(K_SET, SETTINGS); $("#pitchRange").value = SETTINGS.pitch; $("#pitchVal").textContent = SETTINGS.pitch.toFixed(1); restartTTSIfPlaying(); });
   $("#setEngine").addEventListener("change", () => {
     SETTINGS.engine = $("#setEngine").value || "auto";
     saveJSON(K_SET, SETTINGS);
+    // 切回自动模式时清除本次会话的回退标记
+    if (SETTINGS.engine === "auto") TTS.fallbackToWebSpeech = false;
     populateVoices();
     updateEngineUI();
     // 引擎改变时，如果正在朗读则重新以新引擎朗读
@@ -1299,12 +1435,13 @@ function bind() {
     toast("已清空"); renderHome();
   });
 
-  // 点击空白关闭浮窗
+  // 点击空白关闭浮窗 / 翻译重载按钮委托
   document.addEventListener("click", (e) => {
     const pop = $("#wordPop");
     if (pop.style.display === "block" && !pop.contains(e.target) && !e.target.closest(".w")) pop.style.display = "none";
     const sb = $("#selBar");
     if (sb.style.display === "block" && !sb.contains(e.target)) sb.style.display = "none";
+    if (e.target.closest(".btn-reload-tr")) { e.preventDefault(); renderTranslationAndAI(); }
   });
 }
 
@@ -1352,6 +1489,8 @@ function init() {
   $("#accentSel").value = SETTINGS.accent || "en-US";
   $("#rateRange").value = SETTINGS.rate || 1;
   $("#rateVal").textContent = (SETTINGS.rate || 1).toFixed(2) + "x";
+  $("#pitchRange").value = SETTINGS.pitch || 1;
+  $("#pitchVal").textContent = (SETTINGS.pitch || 1).toFixed(1);
   populateVoices();
   // 如果保存过音色且在当前口音列表内则恢复，否则 populateVoices 已设置默认值
   if (SETTINGS.voice) { const sel = $("#voiceSel"); if (sel && [...sel.options].some(o => o.value === SETTINGS.voice)) sel.value = SETTINGS.voice; }

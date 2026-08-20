@@ -50,8 +50,8 @@
 
 /* TTS 控制 */
 .rd-tts-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.rd-speed,.rd-accent,.rd-voice{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
-.rd-speed input[type=range]{width:120px}
+.rd-speed,.rd-pitch,.rd-accent,.rd-voice{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
+.rd-speed input[type=range],.rd-pitch input[type=range]{width:90px}
 .rd-tts-engine{margin-top:8px;font-size:12px;color:var(--muted)}
 
 /* 编辑模式卡片 */
@@ -87,7 +87,7 @@
 .rd-ai-loading{font-size:13px;color:var(--muted)}
 
 /* 点词浮窗 */
-.rd-pop{position:fixed;z-index:60;width:320px;max-width:92vw;background:#fff;border:1px solid var(--line);
+.rd-pop{position:fixed;z-index:60;width:min(320px,92vw);max-width:92vw;background:#fff;border:1px solid var(--line);
   border-radius:14px;box-shadow:0 10px 36px rgba(20,30,50,.20);padding:14px}
 .rd-pop-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .rd-pop-word{font-size:20px;font-weight:800;color:var(--ink)}
@@ -147,11 +147,73 @@
 .rd-set-actions{display:flex;gap:8px;flex-wrap:wrap}
 .rd-set-actions .btn{flex:1;min-width:120px}
 
+/* 引擎提示：不遮挡阅读，放在控制条下方 */
+.rd-tts-engine{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.4}
+
+/* Toast 覆盖：顶部居中、紧凑，避免遮挡正文 */
+#toast{top:10px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);max-width:min(420px,92vw);width:max-content;white-space:normal;text-align:center;font-size:13px;padding:10px 16px}
+
+/* 文件上传按钮美化 */
+#ocrFile{width:100%;padding:10px;border:1px dashed var(--line);border-radius:10px;background:var(--bg);font-size:14px;cursor:pointer}
+#ocrFile::file-selector-button{padding:8px 12px;margin-right:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:13px;cursor:pointer}
+
+/* 触控友好基础 */
+.rd-tts-row .btn,.rd-tts-row select,.rd-tts-row input[type=range]{min-height:36px}
+.rd-mode-toggle .mode-btn{min-height:36px}
+
 @media (max-width:600px){
-  .rd-wrap{padding:12px 10px 70px}
-  .rd-article{font-size:16px;line-height:1.5}
-  .rd-title{font-size:15px}
+  .rd-wrap{padding:12px 10px 80px}
+  .rd-topbar{flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .rd-title{font-size:15px;order:3;width:100%;text-align:center}
+  .rd-back{order:1;font-size:12px;padding:6px 10px}
+  .rd-actions{order:2;margin-left:auto;gap:5px}
   .rd-actions .btn{padding:6px 9px;font-size:12px}
-  .rd-textarea{min-height:160px}
+
+  /* 导入页 */
+  .rd-import .rd-tabs{gap:6px}
+  .rd-textarea{min-height:160px;font-size:16px}
+  .rd-import-actions{flex-wrap:wrap;gap:8px}
+  .rd-import-actions .btn{width:100%;justify-content:center}
+  #ocrActions{display:flex;flex-wrap:wrap;gap:8px}
+  #ocrActions .btn{width:100%;justify-content:center}
+
+  /* 精读顶栏 */
+  .rd-reader-bar{gap:8px;margin-bottom:10px}
+  .rd-title-input{font-size:15px;padding:8px 10px}
+  .rd-mode-toggle .mode-btn{padding:5px 10px;font-size:12px}
+
+  /* 朗读控制条：手机端每行一个控件组 */
+  .rd-tts{padding:12px}
+  .rd-tts-row{gap:8px}
+  .rd-tts-row .btn,.rd-tts-row select{font-size:13px;padding:7px 10px;min-height:40px}
+  .rd-speed,.rd-pitch,.rd-accent,.rd-voice{width:100%;justify-content:space-between;background:var(--bg);border-radius:8px;padding:6px 10px}
+  .rd-speed input[type=range],.rd-pitch input[type=range]{flex:1;max-width:none;margin:0 10px}
+  .rd-voice select{flex:1;min-width:0}
+
+  /* 文章 */
+  .rd-article{font-size:16px;line-height:1.55}
+  .rd-article .rd-para{text-indent:1.5ch;margin-bottom:10px}
+
+  /* 点词弹窗 */
+  .rd-pop{padding:12px;width:min(300px,92vw)}
+  .rd-pop-word{font-size:18px}
+  .rd-pop-actions .btn{min-height:40px}
+
+  /* 翻译 */
+  .rd-tr-en,.rd-tr-zh{font-size:14px}
+  .rd-ai-loading{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+
+  /* 选中批注条 */
+  .rd-selbar{left:50%!important;transform:translateX(-50%)}
+
+  /* 弹窗 */
+  .modal-box{width:94vw;max-height:88vh;margin:6vh auto;padding:14px}
+  .modal-lg .modal-box{width:96vw}
+  .rd-vocab-bar .btn,.rd-vocab-bar .mini{width:100%}
+
+  /* 统计 */
   .grid-3.compact.rd-stats{grid-template-columns:repeat(3,1fr);gap:8px}
+  .rd-stat{padding:10px 6px}
+  .rd-stat .rs-v{font-size:18px}
+  .rd-stat .rs-l{font-size:11px}
 }
