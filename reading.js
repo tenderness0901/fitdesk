@@ -264,6 +264,8 @@ const VOICE_LIST = {
   ]
 };
 let WEBSPEECH_VOICES = [];
+let WEBSPEECH_VOICES_LOADED = false; // true when getVoices() returns at least one voice
+let WEBSPEECH_LOAD_FAILED = false;   // true when voices could not be loaded after timeout
 let CURRENT_VOICE_MODE = "edge"; // 'edge' 或 'webspeech'，决定音色下拉展示哪类
 
 function isWebSpeechForced() { return SETTINGS.engine === "webspeech"; }
@@ -274,6 +276,7 @@ function actualVoiceMode() {
 }
 function setEngineFallback(fallback) {
   TTS.fallbackToWebSpeech = !!fallback;
+  if (fallback && "speechSynthesis" in window) loadVoices();
   populateVoices();
   updateEngineUI();
 }
@@ -287,8 +290,11 @@ function populateVoices() {
   if (mode === "webspeech") {
     // 系统语音：按口音过滤，名字就是 label
     if (!WEBSPEECH_VOICES.length) {
-      sel.innerHTML = '<option value="">系统语音加载中…</option>';
-      sel.disabled = false; return;
+      const hint = WEBSPEECH_LOAD_FAILED
+        ? "当前浏览器未返回系统语音（建议换 Chrome/Edge/Safari）"
+        : "系统语音加载中…";
+      sel.innerHTML = '<option value="">' + hint + '</option>';
+      sel.disabled = true; return;
     }
     let list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith(acc.toLowerCase()));
     // 找不到精确口音时，回退到同一语系（en-US↔en-GB 互备）
@@ -535,12 +541,31 @@ async function playArticleEdge(reqId) {
 /* Web Speech 回退实现 */
 function loadVoices() {
   try {
-    WEBSPEECH_VOICES = speechSynthesis.getVoices() || [];
+    const list = speechSynthesis.getVoices() || [];
+    WEBSPEECH_VOICES = list;
+    if (list.length) WEBSPEECH_VOICES_LOADED = true;
     populateVoices();
     updateEngineUI();
-  } catch (e) { WEBSPEECH_VOICES = []; }
+  } catch (e) {
+    WEBSPEECH_VOICES = [];
+    WEBSPEECH_LOAD_FAILED = true;
+    populateVoices();
+  }
 }
-if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+if ("speechSynthesis" in window) {
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+  // 部分内置浏览器（如微信 X5）有 speechSynthesis 但永远不会返回音色列表，
+  // 超过 3.5 秒仍为空则给出明确提示，避免用户一直看到"加载中…"
+  setTimeout(() => {
+    if (!WEBSPEECH_VOICES_LOADED) {
+      WEBSPEECH_LOAD_FAILED = true;
+      populateVoices();
+    }
+  }, 3500);
+} else {
+  WEBSPEECH_LOAD_FAILED = true;
+}
 function pickVoice(accent) {
   const chosen = currentWebSpeechVoice();
   if (chosen) return chosen;
