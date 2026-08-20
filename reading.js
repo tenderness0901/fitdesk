@@ -465,6 +465,24 @@ function updateEngineUI() {
     }
   }
 }
+function checkTTSSupport() {
+  const hint = $("#ttsSupportHint");
+  if (!hint) return;
+  const hasWebSpeech = "speechSynthesis" in window;
+  const hasEdge = typeof WebSocket !== "undefined" && window.crypto && crypto.subtle;
+  if (!hasWebSpeech && !hasEdge) {
+    hint.className = "rd-tts-support error";
+    hint.style.display = "block";
+    hint.innerHTML = "⚠️ 当前浏览器不支持语音朗读（Edge TTS 与系统语音均不可用），请换用 <b>Chrome / Edge / Safari</b> 访问。";
+    const btn = $("#btnPlay"); if (btn) btn.disabled = true;
+  } else if (!hasWebSpeech) {
+    hint.className = "rd-tts-support";
+    hint.style.display = "block";
+    hint.innerHTML = "ℹ️ 当前浏览器无系统语音，仅依赖 Edge TTS；若 Edge TTS 不可用则无法朗读。";
+  } else {
+    hint.style.display = "none";
+  }
+}
 function saveLLMSettings() {
   if (!SETTINGS.llm) SETTINGS.llm = {};
   SETTINGS.llm.base = ($("#llmBase").value || "").trim();
@@ -1519,6 +1537,8 @@ function init() {
   populateVoices();
   // 如果保存过音色且在当前口音列表内则恢复，否则 populateVoices 已设置默认值
   if (SETTINGS.voice) { const sel = $("#voiceSel"); if (sel && [...sel.options].some(o => o.value === SETTINGS.voice)) sel.value = SETTINGS.voice; }
+  checkTTSSupport();
+  updateEngineUI();
   showView("Home");
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

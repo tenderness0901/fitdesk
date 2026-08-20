@@ -149,6 +149,8 @@
 
 /* 引擎提示：不遮挡阅读，放在控制条下方 */
 .rd-tts-engine{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.4}
+.rd-tts-support{margin-top:8px;font-size:12px;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;line-height:1.4}
+.rd-tts-support.error{color:#991b1b;background:#fef2f2;border-color:#fecaca}
 
 /* Toast 覆盖：顶部居中、紧凑，避免遮挡正文 */
 #toast{top:10px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);max-width:min(420px,92vw);width:max-content;white-space:normal;text-align:center;font-size:13px;padding:10px 16px}
