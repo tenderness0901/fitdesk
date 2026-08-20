@@ -280,9 +280,46 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,s
 .w18-exit{margin-top:14px;background:transparent;border:none;color:var(--muted);font-size:12px;cursor:pointer}
 
 /* 食物入库 */
-.pantry-row{display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff}
-.pantry-row .pr-name{font-weight:700}
-.pantry-row .pr-meta{font-size:12px;color:var(--muted);margin-top:2px}
+.pantry-form .row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pantry-form .disabled{opacity:.5;pointer-events:none}
+.pantry-exp-mode{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 4px}
+.pantry-exp-mode .pe-label{font-size:12px;color:var(--muted);font-weight:600}
+.pantry-exp-mode .radio{display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer}
+.form-error{color:var(--warn);font-size:13px;margin:4px 0 8px}
+.form-actions{display:flex;gap:8px;flex-wrap:wrap}
+.pantry-kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px}
+.pantry-kpi .pk-item{text-align:center;padding:10px 4px;border-radius:10px;background:#f8fafc}
+.pantry-kpi .pk-v{font-size:20px;font-weight:800}
+.pantry-kpi .pk-l{font-size:11px;color:var(--muted)}
+.pantry-kpi .ok .pk-v{color:var(--brand2)}
+.pantry-kpi .warn .pk-v{color:#f59e0b}
+.pantry-kpi .danger .pk-v{color:#ff4d4f}
+.pantry-kpi .over .pk-v{color:var(--warn)}
+.pantry-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.pantry-toolbar input,.pantry-toolbar select{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:13px}
+.pantry-toolbar input{flex:1;min-width:120px}
+.pantry-row{display:flex;align-items:flex-start;justify-content:space-between;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:10px;gap:10px}
+.pantry-row.over{background:#fff1f0}
+.pantry-row.danger{background:#fff7e6}
+.pantry-row.warn{background:#fffbe6}
+.pantry-row .pr-left{flex:1;min-width:0}
+.pantry-row .pr-name{font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pantry-row .pr-meta{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+.pantry-row .pr-note{font-size:12px;color:var(--muted);margin-top:4px;background:#f8fafc;padding:6px 8px;border-radius:6px}
+.pantry-row .pr-tag{font-size:11px;padding:2px 8px;border-radius:12px;white-space:nowrap}
+.pantry-row .pr-tag.tag-ok{background:#e6fffb;color:#08979c}
+.pantry-row .pr-tag.tag-warn{background:#fff7e6;color:#d46b08}
+.pantry-row .pr-tag.tag-danger{background:#fff1f0;color:#cf1322}
+.pantry-row .pr-tag.tag-over{background:#ffccc7;color:#a8071a}
+.pantry-row .pr-cat{font-size:11px;color:var(--brand);background:#fff2e8;padding:2px 8px;border-radius:12px}
+.pantry-row .pr-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
+.pantry-row .pr-actions .btn.sm{padding:6px 10px;font-size:12px}
+.pantry-row .pr-actions .del{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--warn);cursor:pointer}
+@media (max-width:600px){
+  .pantry-kpi{grid-template-columns:repeat(3,1fr)}
+  .pantry-row{flex-direction:column}
+  .pantry-row .pr-actions{width:100%;justify-content:flex-end}
+}
 
 /* 去水印 */
 .wm-area{margin-top:12px;background:#111; border-radius:10px; overflow:auto; max-height:60vh; display:flex; justify-content:center}

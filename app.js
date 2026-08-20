@@ -1916,48 +1916,398 @@ if ($("#w18Level")) $("#w18Level").addEventListener("change", w18Browse);
 if ($("#w18Search")) $("#w18Search").addEventListener("input", w18Browse);
 
 /* ============================================================
-   食物入库（保质期 + 到期提醒）
+   食物入库（升级版：保质期互斥、编辑、消耗、预警、筛选）
    ============================================================ */
+
+/* 兼容旧数据：把旧 pantry 记录迁移到新结构 */
+function migratePantry() {
+  S.pantry.forEach(it => {
+    if (!it.logs) it.logs = [];
+    if (typeof it.qtyNum !== "number") {
+      const m = String(it.qty || "").match(/^\s*(\d+(?:\.\d+)?)\s*(.*)$/);
+      it.qtyNum = m ? parseFloat(m[1]) : 0;
+      it.qtyUnit = m ? m[2].trim() || "份" : "份";
+    }
+    if (!it.qty) it.qty = (it.qtyNum || 0) + (it.qtyUnit || "");
+    if (!it.consumed) it.consumed = 0;
+    if (!it.buyDate && it.buy) it.buyDate = it.buy;
+    if (!it.expDate && it.exp) it.expDate = it.exp;
+    if (!it.storage) it.storage = "";
+    if (!it.category) it.category = "";
+    if (!it.createdAt) it.createdAt = it.updatedAt || Date.now();
+    // 只有旧数据且无日志时补一条 create 日志
+    if (!it.logs.length && it.createdAt) {
+      it.logs.push({ action: "create", time: it.createdAt, qty: it.qtyNum || 0, note: "入库（旧数据迁移）" });
+    }
+  });
+}
+
 function pantryExpiry(it) {
-  if (it.exp) return it.exp;
-  if (it.shelf && it.buy) {
-    const d = new Date(it.buy); d.setDate(d.getDate() + +it.shelf);
+  if (it.expDate) return it.expDate;
+  if (it.shelfDays && it.buyDate) {
+    const d = new Date(it.buyDate); d.setDate(d.getDate() + +it.shelfDays);
+    return d.toISOString().slice(0, 10);
+  }
+  if (it.exp && it.buy) { // 旧数据兜底
+    const d = new Date(it.buy); d.setDate(d.getDate() + +it.exp);
     return d.toISOString().slice(0, 10);
   }
   return null;
 }
-function renderPantry() {
-  const box = $("#pantryList");
-  if (!S.pantry.length) { box.innerHTML = `<div class="empty">还没有库存，入库后这里按到期远近排序并提醒。</div>`; return; }
-  const rows = S.pantry.map(it => {
-    const exp = pantryExpiry(it);
-    const remain = exp ? Math.round((new Date(exp) - new Date(todayStr())) / 864e5) : null;
-    let rm, cls = "";
-    if (remain === null) rm = "未设到期";
-    else if (remain < 0) { rm = `已过期 ${Math.abs(remain)} 天`; cls = "tag-over"; }
-    else if (remain <= 3) { rm = `还剩 ${remain} 天`; cls = "tag-warn"; }
-    else { rm = `还剩 ${remain} 天`; cls = "tag-ok"; }
-    return { html: `<div class="pantry-row">
-      <div><div class="pr-name">${esc(it.name)}</div>
-        <div class="pr-meta">${it.qty ? esc(it.qty) + " · " : ""}到期 ${exp || "—"}${it.note ? " · " + esc(it.note) : ""}</div></div>
-      <div style="display:flex;gap:10px;align-items:center"><span class="${cls}">${rm}</span>
-        <button class="del" data-del-p="${it.id}">✕</button></div>
-    </div>`, remain };
-  });
-  rows.sort((a, b) => (a.remain === null ? 1e9 : a.remain) - (b.remain === null ? 1e9 : b.remain));
-  box.innerHTML = rows.map(r => r.html).join("");
-  $$("[data-del-p]", box).forEach(b => b.addEventListener("click", () => {
-    delRec(S.pantry, b.dataset.delP); save(); renderPantry();
-  }));
+function pantryRemainDays(it) {
+  const exp = pantryExpiry(it);
+  if (!exp) return null;
+  return Math.round((new Date(exp) - new Date(todayStr())) / 864e5);
 }
-$("#pantryForm").addEventListener("submit", e => {
-  e.preventDefault();
-  S.pantry.push({
-    id: uid(), updatedAt: Date.now(), name: $("#pName").value, buy: $("#pBuy").value, qty: $("#pQty").value,
-    shelf: $("#pShelf").value ? +$("#pShelf").value : null, exp: $("#pExp").value || null, note: $("#pNote").value,
+function pantryStatus(it) {
+  const r = pantryRemainDays(it);
+  if (r === null) return { key: "none", label: "未设到期", cls: "" };
+  if (r < 0) return { key: "over", label: "已过期", cls: "tag-over" };
+  if (r <= 3) return { key: "danger", label: "临期", cls: "tag-danger" };
+  if (r <= 15) return { key: "warn", label: "注意", cls: "tag-warn" };
+  return { key: "ok", label: "正常", cls: "tag-ok" };
+}
+function pantryStock(it) {
+  return Math.max(0, +(it.qtyNum || 0) - +(it.consumed || 0));
+}
+function pantryStockText(it) {
+  const s = pantryStock(it);
+  return (s % 1 === 0 ? s : s.toFixed(2)) + (it.qtyUnit || "");
+}
+
+/* 表单互斥：单选切换后自动反算 */
+function setPantryMode(mode) {
+  const shelfLabel = $("#pShelfLabel");
+  const expLabel = $("#pExpLabel");
+  const shelfIn = $("#pShelf");
+  const expIn = $("#pExp");
+  if (mode === "date") {
+    shelfLabel.classList.add("disabled");
+    expLabel.classList.remove("disabled");
+    shelfIn.disabled = true;
+    expIn.disabled = false;
+    // 若已有保质期天数，自动反算到期日
+    if (shelfIn.value && $("#pBuy").value) {
+      const d = new Date($("#pBuy").value);
+      d.setDate(d.getDate() + parseInt(shelfIn.value, 10));
+      expIn.value = d.toISOString().slice(0, 10);
+    }
+  } else {
+    shelfLabel.classList.remove("disabled");
+    expLabel.classList.add("disabled");
+    shelfIn.disabled = false;
+    expIn.disabled = true;
+    // 若已有到期日，自动反算天数
+    if (expIn.value && $("#pBuy").value) {
+      const a = new Date($("#pBuy").value), b = new Date(expIn.value);
+      const days = Math.round((b - a) / 864e5);
+      if (days > 0) shelfIn.value = days;
+    }
+  }
+}
+function bindPantryMode() {
+  $("#pModeShelf").addEventListener("change", () => setPantryMode("shelf"));
+  $("#pModeDate").addEventListener("change", () => setPantryMode("date"));
+  $("#pBuy").addEventListener("change", () => {
+    const mode = $("#pModeDate").checked ? "date" : "shelf";
+    // 已有另一项时自动反算
+    if (mode === "shelf" && $("#pExp").value) setPantryMode("date");
+    else if (mode === "date" && $("#pShelf").value) setPantryMode("shelf");
+    else setPantryMode(mode);
   });
-  save(); toast("已入库"); e.target.reset(); $("#pBuy").value = todayStr(); renderPantry();
-});
+  $("#pShelf").addEventListener("input", () => {
+    if ($("#pModeShelf").checked && $("#pBuy").value && $("#pShelf").value) {
+      const d = new Date($("#pBuy").value); d.setDate(d.getDate() + parseInt($("#pShelf").value, 10));
+      $("#pExp").value = d.toISOString().slice(0, 10);
+    }
+  });
+  $("#pExp").addEventListener("input", () => {
+    if ($("#pModeDate").checked && $("#pBuy").value && $("#pExp").value) {
+      const days = Math.round((new Date($("#pExp").value) - new Date($("#pBuy").value)) / 864e5);
+      if (days > 0) $("#pShelf").value = days;
+    }
+  });
+}
+function showPantryError(msg) {
+  const el = $("#pError");
+  if (msg) { el.textContent = msg; el.style.display = "block"; }
+  else el.style.display = "none";
+}
+
+/* 校验 */
+function validatePantryForm(allowExpired) {
+  showPantryError("");
+  const name = $("#pName").value.trim();
+  if (!name) return "请输入食品名称";
+  const qtyNum = parseFloat($("#pQtyNum").value);
+  if (isNaN(qtyNum) || qtyNum <= 0) return "数量必须大于 0";
+  const unit = $("#pQtyUnit").value.trim();
+  if (!unit) return "请选择或输入单位";
+  const buy = $("#pBuy").value;
+  if (!buy) return "请选择购买日期";
+  const mode = $("#pModeDate").checked ? "date" : "shelf";
+  let expDate = null, shelfDays = null;
+  if (mode === "shelf") {
+    const s = parseInt($("#pShelf").value, 10);
+    if (isNaN(s) || s <= 0) return "保质期天数必须为正整数";
+    shelfDays = s;
+    const d = new Date(buy); d.setDate(d.getDate() + s);
+    expDate = d.toISOString().slice(0, 10);
+  } else {
+    expDate = $("#pExp").value;
+    if (!expDate) return "请选择到期日期";
+    const d1 = new Date(buy), d2 = new Date(expDate);
+    if (d2 < d1) return "购买日期不能晚于到期日期";
+    shelfDays = Math.round((d2 - d1) / 864e5);
+  }
+  if (new Date(expDate) < new Date(todayStr()) && !allowExpired) {
+    return "EXPIRED_CONFIRM";
+  }
+  return { name, qtyNum, unit, buy, expDate, shelfDays, storage: $("#pStorage").value.trim(), category: $("#pCategory").value.trim(), note: $("#pNote").value.trim() };
+}
+
+/* 收集/填充表单 */
+function resetPantryForm() {
+  $("#pantryForm").reset();
+  $("#pId").value = "";
+  $("#pBuy").value = todayStr();
+  $("#pModeShelf").checked = true;
+  $("#pSubmit").textContent = "入库";
+  $("#pCancelEdit").style.display = "none";
+  setPantryMode("shelf");
+  showPantryError("");
+}
+function fillPantryForm(it) {
+  $("#pId").value = it.id;
+  $("#pName").value = it.name || "";
+  $("#pQtyNum").value = it.qtyNum || "";
+  $("#pQtyUnit").value = it.qtyUnit || "";
+  $("#pBuy").value = it.buyDate || "";
+  $("#pStorage").value = it.storage || "";
+  $("#pCategory").value = it.category || "";
+  $("#pNote").value = it.note || "";
+  if (it.mode === "date") {
+    $("#pModeDate").checked = true;
+    $("#pExp").value = it.expDate || "";
+    $("#pShelf").value = it.shelfDays || "";
+  } else {
+    $("#pModeShelf").checked = true;
+    $("#pShelf").value = it.shelfDays || "";
+    $("#pExp").value = it.expDate || "";
+  }
+  setPantryMode(it.mode === "date" ? "date" : "shelf");
+  $("#pSubmit").textContent = "保存修改";
+  $("#pCancelEdit").style.display = "inline-flex";
+  showPantryError("");
+  const formEl = $("#pantryForm");
+  if (formEl && formEl.scrollIntoView) formEl.scrollIntoView({ behavior: "smooth" });
+}
+
+/* 编辑 */
+function editPantry(id) {
+  const it = S.pantry.find(x => x.id === id);
+  if (!it) return;
+  fillPantryForm(it);
+}
+
+/* 消耗出库 */
+let _consumeTarget = null;
+function openConsume(id) {
+  const it = S.pantry.find(x => x.id === id);
+  if (!it) return;
+  _consumeTarget = it;
+  const stock = pantryStock(it);
+  $("#cInfo").textContent = `${esc(it.name)} 当前库存：${pantryStockText(it)}`;
+  $("#cQty").value = stock % 1 === 0 ? stock : stock.toFixed(2);
+  $("#cQty").max = stock;
+  $("#cNote").value = "";
+  $("#cError").style.display = "none";
+  openModal("#consumeModal");
+}
+function doConsume(all) {
+  if (!_consumeTarget) return;
+  const it = _consumeTarget;
+  const stock = pantryStock(it);
+  let qty = all ? stock : parseFloat($("#cQty").value);
+  if (isNaN(qty) || qty <= 0) { $("#cError").textContent = "消耗数量必须大于 0"; $("#cError").style.display = "block"; return; }
+  if (qty > stock) { $("#cError").textContent = "消耗数量不能超过当前库存 " + pantryStockText(it); $("#cError").style.display = "block"; return; }
+  it.consumed = +(it.consumed || 0) + qty;
+  it.logs.push({ action: "consume", time: Date.now(), qty: qty, note: $("#cNote").value.trim() || (all ? "全部消耗" : "部分消耗") });
+  it.updatedAt = Date.now();
+  const remain = pantryStock(it);
+  save(); renderPantry(); closeModal("#consumeModal");
+  if (remain <= 0) {
+    toast(`"${it.name}" 已用完，自动从库存移除`);
+    setTimeout(() => { delRec(S.pantry, it.id); save(); renderPantry(); }, 400);
+  } else {
+    toast(`已消耗 ${qty}${it.qtyUnit}，剩余 ${pantryStockText(it)}`);
+  }
+}
+
+/* 入库 / 保存 */
+function submitPantry(e) {
+  e.preventDefault();
+  const v = validatePantryForm();
+  if (v === "EXPIRED_CONFIRM") {
+    if (!confirm("到期日期早于今天，确认要入库已经过期的食材吗？")) return;
+    return submitPantryCore(true);
+  }
+  if (typeof v === "string") { showPantryError(v); return; }
+  submitPantryCore(false);
+}
+function submitPantryCore(allowExpired) {
+  const v = validatePantryForm(allowExpired);
+  if (typeof v === "string") { showPantryError(v); return; }
+  const editId = $("#pId").value;
+  const now = Date.now();
+  if (editId) {
+    const it = S.pantry.find(x => x.id === editId);
+    if (!it) return;
+    const oldName = it.name;
+    it.name = v.name; it.qtyNum = v.qtyNum; it.qtyUnit = v.unit;
+    it.qty = v.qtyNum + v.unit;
+    it.buyDate = v.buy; it.expDate = v.expDate; it.shelfDays = v.shelfDays; it.mode = $("#pModeDate").checked ? "date" : "shelf";
+    it.storage = v.storage; it.category = v.category; it.note = v.note;
+    it.updatedAt = now;
+    it.logs.push({ action: "edit", time: now, qty: v.qtyNum, note: "编辑" });
+    toast(`"${oldName}" 已更新`);
+  } else {
+    const rec = {
+      id: uid(), createdAt: now, updatedAt: now,
+      name: v.name, qtyNum: v.qtyNum, qtyUnit: v.unit, qty: v.qtyNum + v.unit,
+      buyDate: v.buy, expDate: v.expDate, shelfDays: v.shelfDays, mode: $("#pModeDate").checked ? "date" : "shelf",
+      storage: v.storage, category: v.category, note: v.note,
+      consumed: 0,
+      logs: [{ action: "create", time: now, qty: v.qtyNum, note: "入库" }]
+    };
+    S.pantry.push(rec);
+    toast(`"${rec.name}" 已入库`);
+  }
+  save(); resetPantryForm(); renderPantry();
+}
+
+/* 删除 */
+function deletePantry(id) {
+  const it = S.pantry.find(x => x.id === id);
+  if (!it || !confirm(`确定删除 "${it.name}" 吗？`)) return;
+  delRec(S.pantry, id);
+  save(); renderPantry(); toast(`"${it.name}" 已删除`);
+}
+
+/* 筛选/排序 */
+function getPantryFilterOptions() {
+  const storages = new Set(S.pantry.map(x => x.storage).filter(Boolean));
+  const categories = new Set(S.pantry.map(x => x.category).filter(Boolean));
+  return { storages, categories };
+}
+function applyPantryFilters() {
+  const keyword = $("#pSearch").value.trim().toLowerCase();
+  const sort = $("#pSort").value;
+  const storage = $("#pFilterStorage").value;
+  const category = $("#pFilterCategory").value;
+  const status = $("#pFilterStatus").value;
+  let list = S.pantry.slice();
+  if (keyword) list = list.filter(x => (x.name || "").toLowerCase().includes(keyword));
+  if (storage) list = list.filter(x => x.storage === storage);
+  if (category) list = list.filter(x => x.category === category);
+  if (status) list = list.filter(x => pantryStatus(x).key === status);
+  list.sort((a, b) => {
+    if (sort === "exp-asc") {
+      const ra = pantryRemainDays(a) === null ? 1e9 : pantryRemainDays(a);
+      const rb = pantryRemainDays(b) === null ? 1e9 : pantryRemainDays(b);
+      return ra - rb;
+    }
+    if (sort === "add-desc") return (b.createdAt || 0) - (a.createdAt || 0);
+    return (a.name || "").localeCompare(b.name || "");
+  });
+  return list;
+}
+
+/* 统计看板 */
+function renderPantryStats() {
+  const box = $("#pantryStats");
+  const total = S.pantry.length;
+  const over = S.pantry.filter(x => pantryStatus(x).key === "over").length;
+  const danger = S.pantry.filter(x => pantryStatus(x).key === "danger").length;
+  const warn = S.pantry.filter(x => pantryStatus(x).key === "warn").length;
+  const ok = S.pantry.filter(x => pantryStatus(x).key === "ok").length;
+  box.innerHTML = `
+    <div class="card-head"><h3>库存概览</h3></div>
+    <div class="pantry-kpi">
+      <div class="pk-item"><div class="pk-v">${total}</div><div class="pk-l">总库存</div></div>
+      <div class="pk-item ok"><div class="pk-v">${ok}</div><div class="pk-l">正常</div></div>
+      <div class="pk-item warn"><div class="pk-v">${warn}</div><div class="pk-l">注意</div></div>
+      <div class="pk-item danger"><div class="pk-v">${danger}</div><div class="pk-l">临期</div></div>
+      <div class="pk-item over"><div class="pk-v">${over}</div><div class="pk-l">已过期</div></div>
+    </div>`;
+}
+
+function renderPantry() {
+  migratePantry(); // 每次渲染前确保兼容
+  renderPantryStats();
+  // 刷新筛选下拉选项
+  const { storages, categories } = getPantryFilterOptions();
+  const curStorage = $("#pFilterStorage").value;
+  const curCategory = $("#pFilterCategory").value;
+  $("#pFilterStorage").innerHTML = '<option value="">全部位置</option>' + [...storages].map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  $("#pFilterCategory").innerHTML = '<option value="">全部分类</option>' + [...categories].map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  $("#pFilterStorage").value = curStorage;
+  $("#pFilterCategory").value = curCategory;
+
+  const box = $("#pantryList");
+  const list = applyPantryFilters();
+  if (!list.length) {
+    box.innerHTML = `<div class="empty">没有匹配的库存记录。</div>`;
+    return;
+  }
+  box.innerHTML = list.map(it => {
+    const st = pantryStatus(it);
+    const exp = pantryExpiry(it);
+    const remain = pantryRemainDays(it);
+    const remainText = remain === null ? "" : (remain < 0 ? `已过期 ${Math.abs(remain)} 天` : `剩余 ${remain} 天`);
+    return `<div class="pantry-row ${st.key}">
+      <div class="pr-left">
+        <div class="pr-name">${esc(it.name)} <span class="pr-tag ${st.cls}">${st.label}</span></div>
+        <div class="pr-meta">
+          <span>数量：${pantryStockText(it)}</span>
+          <span>储存：${esc(it.storage || "—")}</span>
+        </div>
+        <div class="pr-meta">
+          <span>到期：${exp || "—"}</span>
+          <span class="${st.cls}">${remainText}</span>
+          ${it.category ? `<span class="pr-cat">${esc(it.category)}</span>` : ""}
+        </div>
+        ${it.note ? `<div class="pr-note">${esc(it.note)}</div>` : ""}
+      </div>
+      <div class="pr-actions">
+        <button class="btn sm" data-edit-p="${it.id}">编辑</button>
+        <button class="btn sm" data-consume-p="${it.id}">消耗</button>
+        <button class="del" data-del-p="${it.id}">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+  $$("[data-edit-p]", box).forEach(b => b.addEventListener("click", () => editPantry(b.dataset.editP)));
+  $$("[data-consume-p]", box).forEach(b => b.addEventListener("click", () => openConsume(b.dataset.consumeP)));
+  $$("[data-del-p]", box).forEach(b => b.addEventListener("click", () => deletePantry(b.dataset.delP)));
+}
+
+/* 绑定 */
+$("#pantryForm").addEventListener("submit", submitPantry);
+$("#pCancelEdit").addEventListener("click", resetPantryForm);
+$("#pSearch").addEventListener("input", renderPantry);
+$("#pSort").addEventListener("change", renderPantry);
+$("#pFilterStorage").addEventListener("change", renderPantry);
+$("#pFilterCategory").addEventListener("change", renderPantry);
+$("#pFilterStatus").addEventListener("change", renderPantry);
+$("#btnConsumePart").addEventListener("click", () => doConsume(false));
+$("#btnConsumeAll").addEventListener("click", () => doConsume(true));
+$$('[data-close="#consumeModal"]').forEach(b => b.addEventListener("click", () => closeModal("#consumeModal")));
+bindPantryMode();
+$("#pBuy").value = todayStr();
+setPantryMode("shelf");
+
+// 把 pantry 测试/外部需要的函数挂到 window（不影响正常业务）
+window.__pantry = { $, S, switchModule, setPantryMode, editPantry, openConsume, doConsume, pantryStatus, pantryStock, pantryExpiry, pantryRemainDays, deletePantry, renderPantry, validatePantryForm };
 
 /* ============================================================
    图片去水印（纯 JS 本地处理）

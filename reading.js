@@ -264,6 +264,9 @@ function populateVoices() {
   const acc = ($("#accentSel") && $("#accentSel").value) || SETTINGS.accent || "en-US";
   const list = VOICE_LIST[acc] || VOICE_LIST["en-US"];
   sel.innerHTML = list.map(v => '<option value="' + v.id + '">' + v.label + "</option>").join("");
+  // 恢复用户上次选择的音色（若不在当前口音列表则默认选第一个）
+  if (SETTINGS.voice && list.some(v => v.id === SETTINGS.voice)) sel.value = SETTINGS.voice;
+  else { sel.value = list[0].id; SETTINGS.voice = list[0].id; }
 }
 function currentEdgeVoice() {
   const sel = $("#voiceSel");
@@ -804,10 +807,27 @@ function renderHome() {
   updateVocabDue();
 }
 
+/* 带超时的 Promise 包装 */
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const t = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(label + " 超时"));
+    }, ms);
+    promise.then(
+      v => { if (!settled) { settled = true; clearTimeout(t); resolve(v); } },
+      e => { if (!settled) { settled = true; clearTimeout(t); reject(e); } }
+    );
+  });
+}
+
 /* ============================================================
    OCR 多线路重试
    - workerPath: 国内常被墙，jsDelivr/unpkg 镜像回退
    - langPath: 训练数据下载，国内慢；优先 jsDelivr GitHub 镜像
+   - 每条线路带独立超时，卡住自动切换，避免永远 0%
    ============================================================ */
 async function runOCRWithFallback(Tess, file, logger) {
   const bases = [];
@@ -821,13 +841,14 @@ async function runOCRWithFallback(Tess, file, logger) {
   bases.push('https://cdn.bootcdn.net/ajax/libs/tesseract.js/5.1.1');
 
   // 多 langPath 镜像：eng.traineddata (~10MB best / ~4MB 精简)
+  // cacheBust=1 防止浏览器缓存旧失败请求
   const langPaths = [
     'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0_best',     // jsDelivr GH 镜像（国内较稳）
     'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0',          // 同上，精简版
     'https://cdn.jsdelivr.net/npm/tesseract-data@4.0.0/4.0.0_best',        // 备用 npm 镜像
     'https://tessdata.projectnaptha.com/4.0.0_best',                       // 官方主源
     'https://tessdata.projectnaptha.com/4.0.0'
-  ];
+  ].map(u => u + '?cacheBust=1');
 
   const seen = new Set();
   let lastErr = null;
@@ -839,22 +860,26 @@ async function runOCRWithFallback(Tess, file, logger) {
       let worker;
       attempts++;
       try {
-        worker = await Tess.createWorker('eng', 1, {
-          workerPath: base + '/worker.min.js',
-          langPath: langPath,
-          logger: logger,
-          errorHandler: e => console.warn('OCR worker warn:', e)
-        });
-        const res = await worker.recognize(file);
+        worker = await withTimeout(
+          Tess.createWorker('eng', 1, {
+            workerPath: base + '/worker.min.js',
+            langPath: langPath,
+            logger: logger,
+            errorHandler: e => console.warn('OCR worker warn:', e)
+          }),
+          18000,
+          '加载 OCR 引擎/语言包'
+        );
+        const res = await withTimeout(worker.recognize(file), 60000, '识别图片');
+        await worker.terminate();
         return res;
       } catch (e) {
         lastErr = e;
         console.warn('OCR 线路失败(base=' + base + ', lang=' + langPath + '):', e.message);
-        // 训练数据下载失败（超时/网络不可达）时，继续尝试下一个 langPath
-        // worker 进程相关的失败（worker.min.js 找不到）切换 base
+        // 超时或训练数据相关失败 → 继续尝试下一个 langPath；worker 加载失败 → 换 base
         const msg = String(e.message || '');
-        const isLangIssue = /traineddata|fetch|network|timeout|CORS|load/i.test(msg);
-        if (!isLangIssue) continue outer; // 非语言包问题，换 base
+        const isLangIssue = /traineddata|language|fetch|network|timeout|CORS|load|Failed to fetch/i.test(msg);
+        if (!isLangIssue) continue outer;
       } finally {
         if (worker) try { await worker.terminate(); } catch (_) {}
       }
@@ -947,7 +972,17 @@ function bind() {
   $("#btnStop").addEventListener("click", stopTTS);
   $("#btnReadSel").addEventListener("click", readSelection);
   $("#rateRange").addEventListener("input", () => { $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(2) + "x"; });
-  $("#accentSel").addEventListener("change", () => { populateVoices(); });
+  $("#accentSel").addEventListener("change", () => {
+    SETTINGS.accent = $("#accentSel").value;
+    saveJSON(K_SET, SETTINGS);
+    populateVoices();
+    // 同步设置弹窗中的口音下拉
+    const setAccent = $("#setAccent"); if (setAccent) setAccent.value = SETTINGS.accent;
+  });
+  $("#voiceSel").addEventListener("change", () => {
+    SETTINGS.voice = $("#voiceSel").value;
+    saveJSON(K_SET, SETTINGS);
+  });
   $("#btnToggleTr").addEventListener("click", () => {
     const hide = $("#trPara").classList.toggle("hide-zh");
     $("#btnToggleTr").textContent = hide ? "显示译文" : "隐藏译文";
@@ -1106,6 +1141,8 @@ function init() {
   $("#rateRange").value = SETTINGS.rate || 1;
   $("#rateVal").textContent = (SETTINGS.rate || 1).toFixed(2) + "x";
   populateVoices();
+  // 如果保存过音色且在当前口音列表内则恢复，否则 populateVoices 已设置默认值
+  if (SETTINGS.voice) { const sel = $("#voiceSel"); if (sel && [...sel.options].some(o => o.value === SETTINGS.voice)) sel.value = SETTINGS.voice; }
   showView("Home");
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

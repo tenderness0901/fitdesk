@@ -337,29 +337,102 @@
       </div>
     </section>
 
-    <!-- 食物入库 -->
+    <!-- 食物入库（升级版：保质期互斥、编辑、消耗、预警、筛选） -->
     <section class="module" id="m-pantry">
       <div class="card">
-        <div class="card-head"><h3>食品入库</h3></div>
-        <form id="pantryForm" class="form">
+        <div class="card-head"><h3>🥫 食品入库</h3></div>
+        <form id="pantryForm" class="form pantry-form">
+          <input type="hidden" id="pId" />
           <label>食品名称 <input type="text" id="pName" placeholder="如：牛奶 / 鸡蛋 / 西红柿" required /></label>
           <div class="row-2">
-            <label>购买日期 <input type="date" id="pBuy" required /></label>
-            <label>数量 <input type="text" id="pQty" placeholder="如 1盒 / 500g" /></label>
+            <label>数量 <input type="number" id="pQtyNum" min="0" step="0.01" placeholder="如 2" required /></label>
+            <label>单位
+              <input type="text" id="pQtyUnit" list="unitList" placeholder="如 盒 / g / 袋" required />
+              <datalist id="unitList">
+                <option value="g"></option><option value="kg"></option><option value="份"></option>
+                <option value="袋"></option><option value="盒"></option><option value="瓶"></option><option value="包"></option>
+              </datalist>
+            </label>
           </div>
           <div class="row-2">
-            <label>保质期(天) <input type="number" id="pShelf" min="1" placeholder="如 7" /></label>
-            <label>或 直接填到期日 <input type="date" id="pExp" /></label>
+            <label>购买日期 <input type="date" id="pBuy" required /></label>
+            <label>储存位置
+              <input type="text" id="pStorage" list="storageList" placeholder="如 冷藏" />
+              <datalist id="storageList">
+                <option value="常温"></option><option value="冷藏"></option><option value="冷冻"></option><option value="储物柜"></option>
+              </datalist>
+            </label>
           </div>
-          <label>备注 <input type="text" id="pNote" placeholder="如：放冷藏" /></label>
-          <button type="submit" class="btn primary">入库</button>
+          <label>食材分类
+            <input type="text" id="pCategory" list="categoryList" placeholder="如 生鲜肉类 / 蔬菜" />
+            <datalist id="categoryList">
+              <option value="生鲜肉类"></option><option value="水产"></option><option value="蔬菜"></option>
+              <option value="干货"></option><option value="调味品"></option><option value="零食"></option><option value="速食"></option>
+            </datalist>
+          </label>
+          <div class="pantry-exp-mode">
+            <div class="pe-label">保质期录入方式</div>
+            <label class="radio"><input type="radio" name="pMode" value="shelf" id="pModeShelf" checked /> 按保质期天数</label>
+            <label class="radio"><input type="radio" name="pMode" value="date" id="pModeDate" /> 直接填到期日期</label>
+          </div>
+          <div class="row-2">
+            <label id="pShelfLabel">保质期(天) <input type="number" id="pShelf" min="1" step="1" placeholder="如 7" /></label>
+            <label id="pExpLabel" class="disabled">到期日期 <input type="date" id="pExp" disabled /></label>
+          </div>
+          <label>备注 <input type="text" id="pNote" placeholder="品牌、购买渠道、特殊储存要求等" /></label>
+          <div id="pError" class="form-error" style="display:none"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary" id="pSubmit">入库</button>
+            <button type="button" class="btn" id="pCancelEdit" style="display:none">取消编辑</button>
+          </div>
         </form>
       </div>
+
+      <div class="card pantry-stats" id="pantryStats"></div>
+
       <div class="card">
         <div class="card-head"><h3>库存与到期提醒</h3></div>
+        <div class="pantry-toolbar">
+          <input type="text" id="pSearch" placeholder="🔍 搜索食品名称" />
+          <select id="pSort">
+            <option value="exp-asc">到期时间升序</option>
+            <option value="add-desc">入库时间倒序</option>
+            <option value="name">名称</option>
+          </select>
+          <select id="pFilterStorage">
+            <option value="">全部位置</option>
+          </select>
+          <select id="pFilterCategory">
+            <option value="">全部分类</option>
+          </select>
+          <select id="pFilterStatus">
+            <option value="">全部状态</option>
+            <option value="ok">正常</option>
+            <option value="warn">临期</option>
+            <option value="danger">高危</option>
+            <option value="over">已过期</option>
+          </select>
+        </div>
         <div class="list" id="pantryList"></div>
       </div>
     </section>
+
+    <!-- 消耗出库弹窗 -->
+    <div class="modal" id="consumeModal">
+      <div class="modal-box">
+        <div class="modal-head"><h3>消耗出库</h3><button class="modal-close" data-close="#consumeModal">×</button></div>
+        <div class="modal-body">
+          <p id="cInfo" class="hint"></p>
+          <label>消耗数量 <input type="number" id="cQty" min="0.01" step="0.01" /></label>
+          <label>备注（可选）<input type="text" id="cNote" placeholder="如 做晚饭用" /></label>
+          <div id="cError" class="form-error" style="display:none"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn primary" id="btnConsumePart">部分消耗</button>
+          <button class="btn" id="btnConsumeAll">全部消耗</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 图片去水印 -->
     <section class="module" id="m-watermark">
