@@ -308,9 +308,10 @@ function edgeSynthesize(text) {
   return new Promise((resolve, reject) => {
     if (typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle) { reject(new Error("环境不支持 Edge TTS")); return; }
     let settled = false;
-    const finish = (ok, val) => { if (settled) return; settled = true; clearTimeout(timeout); if (ok) resolve(val); else reject(val); };
+    let timeout = null; // 提前声明，避免 finish 闭包在 setTimeout 之前访问触发 TDZ
+    const finish = (ok, val) => { if (settled) return; settled = true; if (timeout) clearTimeout(timeout); if (ok) resolve(val); else reject(val); };
     generateSecMsGec().then(gec => {
-      const connId = (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === "x" ? "x" : (r & 0x3 | 0x8)).toString(16); }));
+      const connId = (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === "x" ? "r" : (r & 0x3 | 0x8)).toString(16); }));
       const url = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
         "?TrustedClientToken=" + EDGE_TOKEN + "&Sec-MS-GEC=" + encodeURIComponent(gec) + "&Sec-MS-GEC-Version=1&ConnectionId=" + connId;
       let ws;
@@ -323,7 +324,7 @@ function edgeSynthesize(text) {
       const voice = currentEdgeVoice();
       const ratePct = rateToPct($("#rateRange") ? $("#rateRange").value : "1");
       let done = false;
-      const timeout = setTimeout(() => { try { ws.close(); } catch (_) {} finish(false, new Error("Edge TTS 超时（网络/跨域可能受限）")); }, 20000);
+      timeout = setTimeout(() => { try { if (ws.readyState === 1) ws.close(); } catch (_) {} finish(false, new Error("Edge TTS 超时（网络/跨域可能受限）")); }, 20000);
 
       ws.onopen = () => {
         try {
@@ -805,6 +806,8 @@ function renderHome() {
 
 /* ============================================================
    OCR 多线路重试
+   - workerPath: 国内常被墙，jsDelivr/unpkg 镜像回退
+   - langPath: 训练数据下载，国内慢；优先 jsDelivr GitHub 镜像
    ============================================================ */
 async function runOCRWithFallback(Tess, file, logger) {
   const bases = [];
@@ -817,29 +820,48 @@ async function runOCRWithFallback(Tess, file, logger) {
   bases.push('https://unpkg.com/tesseract.js@5.1.1/dist');
   bases.push('https://cdn.bootcdn.net/ajax/libs/tesseract.js/5.1.1');
 
-  const langPath = 'https://tessdata.projectnaptha.com/4.0.0_best';
+  // 多 langPath 镜像：eng.traineddata (~10MB best / ~4MB 精简)
+  const langPaths = [
+    'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0_best',     // jsDelivr GH 镜像（国内较稳）
+    'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0',          // 同上，精简版
+    'https://cdn.jsdelivr.net/npm/tesseract-data@4.0.0/4.0.0_best',        // 备用 npm 镜像
+    'https://tessdata.projectnaptha.com/4.0.0_best',                       // 官方主源
+    'https://tessdata.projectnaptha.com/4.0.0'
+  ];
+
   const seen = new Set();
   let lastErr = null;
+  let attempts = 0;
+  outer:
   for (const base of bases) {
     if (seen.has(base)) continue; seen.add(base);
-    let worker;
-    try {
-      worker = await Tess.createWorker('eng', 1, {
-        workerPath: base + '/worker.min.js',
-        langPath: langPath,
-        logger: logger,
-        errorHandler: e => console.warn('OCR worker warn:', e)
-      });
-      const res = await worker.recognize(file);
-      return res;
-    } catch (e) {
-      lastErr = e;
-      console.warn('OCR 线路失败:', base, e.message);
-    } finally {
-      if (worker) try { await worker.terminate(); } catch (_) {}
+    for (const langPath of langPaths) {
+      let worker;
+      attempts++;
+      try {
+        worker = await Tess.createWorker('eng', 1, {
+          workerPath: base + '/worker.min.js',
+          langPath: langPath,
+          logger: logger,
+          errorHandler: e => console.warn('OCR worker warn:', e)
+        });
+        const res = await worker.recognize(file);
+        return res;
+      } catch (e) {
+        lastErr = e;
+        console.warn('OCR 线路失败(base=' + base + ', lang=' + langPath + '):', e.message);
+        // 训练数据下载失败（超时/网络不可达）时，继续尝试下一个 langPath
+        // worker 进程相关的失败（worker.min.js 找不到）切换 base
+        const msg = String(e.message || '');
+        const isLangIssue = /traineddata|fetch|network|timeout|CORS|load/i.test(msg);
+        if (!isLangIssue) continue outer; // 非语言包问题，换 base
+      } finally {
+        if (worker) try { await worker.terminate(); } catch (_) {}
+      }
     }
   }
-  throw lastErr || new Error('所有 OCR 识别线路均不可用');
+  const detail = attempts ? '已尝试 ' + attempts + ' 条线路均不可用' : '没有可用的 OCR 线路';
+  throw lastErr || new Error(detail + '（请检查网络或改用「粘贴文本」）');
 }
 
 /* ============================================================
