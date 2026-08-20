@@ -374,8 +374,31 @@ function edgeSynthesize(text) {
   });
 }
 
-let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0 };
+let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0, lastText: "", lastOpts: null, lastParagraphIdx: -1 };
 function clearHi() { if (TTS.curHi) { TTS.curHi.classList.remove("hl"); TTS.curHi = null; } }
+function preferredEngine() {
+  return (SETTINGS.engine === "webspeech") ? "webspeech" : "auto";
+}
+function isWebSpeechForced() { return preferredEngine() === "webspeech"; }
+function updateEngineUI() {
+  const forced = isWebSpeechForced();
+  const hint = $("#engineHint");
+  if (hint) {
+    hint.textContent = forced
+      ? "强制内置朗读：调用浏览器系统语音，不依赖网络，但音色下拉不可用。"
+      : "自动模式下音色下拉选择 Edge 语音；若网络受限 Edge 失败，会切换为浏览器内置朗读。";
+  }
+  // 强制内置朗读时，音色下拉灰显提示
+  const voiceSel = $("#voiceSel");
+  if (voiceSel) voiceSel.disabled = forced;
+}
+function saveLLMSettings() {
+  if (!SETTINGS.llm) SETTINGS.llm = {};
+  SETTINGS.llm.base = ($("#llmBase").value || "").trim();
+  SETTINGS.llm.key = ($("#llmKey").value || "").trim();
+  SETTINGS.llm.model = ($("#llmModel").value || "").trim();
+  saveJSON(K_SET, SETTINGS);
+}
 
 /* 高亮：根据字符偏移定位当前单词 span */
 function highlightAtChar(ci) {
@@ -388,8 +411,9 @@ function highlightAtChar(ci) {
 async function speakText(text, opts) {
   opts = opts || {};
   const reqId = opts.reqId || 0;
-  // 超长文本或环境不支持 → 直接走内置朗读
-  if (text.length > 5000 || typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle) {
+  TTS.lastText = text; TTS.lastOpts = opts; TTS.lastParagraphIdx = opts.paragraphIdx ?? -1;
+  // 强制内置朗读 或 超长文本 / 环境不支持 → 走内置
+  if (isWebSpeechForced() || text.length > 5000 || typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle) {
     return speakTextWebSpeech(text, opts);
   }
   try {
@@ -408,6 +432,14 @@ async function speakText(text, opts) {
     if (reqId && TTS.reqId !== reqId) return;
     speakTextWebSpeech(text, opts);
   }
+}
+
+/* 切换音色/口音/语速后，若正在朗读则停止并用新设置重新朗读 */
+function restartTTSIfPlaying() {
+  if (TTS.state !== "playing" || !TTS.lastText) return;
+  stopTTS();
+  // 短暂延迟，让 stop 完成
+  setTimeout(() => { TTS.reqId++; speakText(TTS.lastText, Object.assign({}, TTS.lastOpts, { reqId: TTS.reqId })); }, 80);
 }
 
 async function playArticleEdge(reqId) {
@@ -581,8 +613,15 @@ async function translateOneProvider(text, provider) {
   if (text.length > provider.maxLen) throw new Error("chunk too long for " + provider.name);
   return await provider.fn(text);
 }
-async function translateAny(text) {
+async function translateAny(text, style) {
   if (!text || !text.trim()) return "";
+  // 优先 LLM（若用户开启且已配置）
+  if (SETTINGS.useLLMForTranslation && llmAvailable()) {
+    try {
+      const res = await llmTranslate(text, style);
+      if (res) return res;
+    } catch (e) { console.warn("LLM 翻译失败，回退免费源", e); }
+  }
   let lastErr = "无可用翻译源";
   for (const p of TRANSLATE_PROVIDERS) {
     if (text.length > p.maxLen) continue;
@@ -599,7 +638,7 @@ async function translateAny(text) {
     const small = splitBySentences(text, 480);
     const parts = [];
     for (const c of small) {
-      parts.push(await translateAny(c));
+      parts.push(await translateAny(c, style));
       await new Promise(r => setTimeout(r, 120));
     }
     return parts.filter(Boolean).join("\n");
@@ -611,6 +650,11 @@ async function translate(text) {
   catch (e) { console.warn("翻译失败", e); return "（翻译服务暂不可用，请检查网络）"; }
 }
 async function translateLong(text) {
+  if (SETTINGS.useLLMForTranslation && llmAvailable()) {
+    // LLM 一般可处理较长文本，先整段翻译；失败再拆段
+    try { return await llmTranslate(text, "summary"); }
+    catch (e) { console.warn("LLM 长文翻译失败，拆段回退", e); }
+  }
   const chunks = splitBySentences(text, 1500); // 优先适配 LibreTranslate
   const out = [];
   for (const c of chunks) {
@@ -642,15 +686,14 @@ async function renderTranslationAndAI() {
 
   const blocks = [];
   for (const p of CURRENT.paragraphs) {
-    const zh = await translate(p);
+    const zh = await translateAny(p, "paragraph");
     blocks.push('<div class="rd-tr-block"><div class="rd-tr-en">' + escapeHtml(p) + '</div><div class="rd-tr-zh">' + escapeHtml(zh) + "</div></div>");
     await new Promise(r => setTimeout(r, 120));
   }
   $("#trPara").innerHTML = blocks.join("");
 
-  const llm = SETTINGS.llm && SETTINGS.llm.base && SETTINGS.llm.key ? SETTINGS.llm : null;
   let mainIdea;
-  if (llm) {
+  if (llmAvailable()) {
     try { mainIdea = await llmChat("你是英语老师，请用中文用 3-5 句话概括下面英文文章的主旨，简洁、面向中文学习者。", CURRENT.raw); } catch (_) {}
   }
   if (!mainIdea) mainIdea = await translate(extractiveSummary());
@@ -660,10 +703,13 @@ async function renderTranslationAndAI() {
   if (longs.length) {
     const items = [];
     for (const s of longs.slice(0, 6)) {
-      const zh = await translate(s);
-      const clauses = s.split(/[,;]|\s(?:and|but|because|although|which|that|who|when|while)\s/i).map(c => c.trim()).filter(Boolean);
-      const clauseHtml = clauses.length > 1 ? '<ul style="margin:4px 0 0 18px;font-size:13px;color:#55636f">' + clauses.map(c => "<li>" + escapeHtml(c) + "</li>").join("") + "</ul>" : "";
-      items.push('<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body"><b>' + escapeHtml(s) + "</b>" + clauseHtml + "<div style='margin-top:6px;color:#33414f'>" + escapeHtml(zh) + "</div></div></div>");
+      let zh = "（翻译失败）";
+      if (llmAvailable()) {
+        try { zh = await llmChat("请把下面这个长难句翻译成中文，并简要说明句子结构（主谓宾/从句等），用 1-2 句话。", s) || "（翻译失败）"; } catch (_) {}
+      } else {
+        zh = await translate(s);
+      }
+      items.push('<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body"><b>' + escapeHtml(s) + "</b><div style='margin-top:6px;color:#33414f'>" + escapeHtml(zh) + "</div></div></div>");
       await new Promise(r => setTimeout(r, 80));
     }
     ai += items.join("");
@@ -683,6 +729,17 @@ async function llmChat(system, user) {
     const j = await r.json();
     return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || null;
   } catch (e) { return null; }
+}
+async function llmTranslate(text, style) {
+  if (!text || !text.trim()) return "";
+  const prompt = style === "paragraph"
+    ? "你是专业翻译。请将下面的英文段落翻译成自然流畅的中文，只返回译文，不解释。"
+    : "你是专业翻译。请将下面的英文翻译成自然流畅的中文，只返回译文，不解释。";
+  const res = await llmChat(prompt, text);
+  return (res || "").trim();
+}
+function llmAvailable() {
+  return !!(SETTINGS.llm && SETTINGS.llm.base && SETTINGS.llm.key && SETTINGS.llm.model);
 }
 
 /* ============================================================
@@ -1059,17 +1116,22 @@ function bind() {
   $("#btnPlay").addEventListener("click", playArticle);
   $("#btnStop").addEventListener("click", stopTTS);
   $("#btnReadSel").addEventListener("click", readSelection);
-  $("#rateRange").addEventListener("input", () => { $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(2) + "x"; });
   $("#accentSel").addEventListener("change", () => {
     SETTINGS.accent = $("#accentSel").value;
     saveJSON(K_SET, SETTINGS);
     populateVoices();
+    restartTTSIfPlaying();
     // 同步设置弹窗中的口音下拉
     const setAccent = $("#setAccent"); if (setAccent) setAccent.value = SETTINGS.accent;
   });
   $("#voiceSel").addEventListener("change", () => {
     SETTINGS.voice = $("#voiceSel").value;
     saveJSON(K_SET, SETTINGS);
+    restartTTSIfPlaying();
+  });
+  $("#rateRange").addEventListener("input", () => {
+    $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(2) + "x";
+    restartTTSIfPlaying();
   });
   $("#btnToggleTr").addEventListener("click", () => {
     const hide = $("#trPara").classList.toggle("hide-zh");
@@ -1160,18 +1222,30 @@ function bind() {
   // 设置
   $("#setAccent").value = SETTINGS.accent || "en-US";
   $("#setRate").value = String(SETTINGS.rate || 1);
+  $("#setEngine").value = SETTINGS.engine || "auto";
+  $("#useLLMForTranslation").checked = !!SETTINGS.useLLMForTranslation;
   $("#llmBase").value = (SETTINGS.llm && SETTINGS.llm.base) || "";
   $("#llmKey").value = (SETTINGS.llm && SETTINGS.llm.key) || "";
   $("#llmModel").value = (SETTINGS.llm && SETTINGS.llm.model) || "";
-  $("#setAccent").addEventListener("change", () => { SETTINGS.accent = $("#setAccent").value; saveJSON(K_SET, SETTINGS); $("#accentSel").value = SETTINGS.accent; populateVoices(); });
-  $("#setRate").addEventListener("change", () => { SETTINGS.rate = parseFloat($("#setRate").value); saveJSON(K_SET, SETTINGS); $("#rateRange").value = SETTINGS.rate; $("#rateVal").textContent = SETTINGS.rate.toFixed(2) + "x"; });
+  updateEngineUI();
+  $("#setAccent").addEventListener("change", () => { SETTINGS.accent = $("#setAccent").value; saveJSON(K_SET, SETTINGS); $("#accentSel").value = SETTINGS.accent; populateVoices(); restartTTSIfPlaying(); });
+  $("#setRate").addEventListener("change", () => { SETTINGS.rate = parseFloat($("#setRate").value); saveJSON(K_SET, SETTINGS); $("#rateRange").value = SETTINGS.rate; $("#rateVal").textContent = SETTINGS.rate.toFixed(2) + "x"; restartTTSIfPlaying(); });
+  $("#setEngine").addEventListener("change", () => {
+    SETTINGS.engine = $("#setEngine").value || "auto";
+    saveJSON(K_SET, SETTINGS);
+    updateEngineUI();
+    // 引擎改变时，如果正在朗读则重新以新引擎朗读
+    if (TTS.state === "playing" && TTS.lastText) { stopTTS(); setTimeout(() => { TTS.reqId++; speakText(TTS.lastText, Object.assign({}, TTS.lastOpts, { reqId: TTS.reqId })); }, 80); }
+  });
+  $$("#llmBase, #llmKey, #llmModel").forEach(el => el.addEventListener("input", saveLLMSettings));
+  $("#useLLMForTranslation").addEventListener("change", () => { SETTINGS.useLLMForTranslation = $("#useLLMForTranslation").checked; saveJSON(K_SET, SETTINGS); });
   $("#btnExportData").addEventListener("click", exportData);
   $("#btnImportData").addEventListener("click", () => $("#importFile").click());
   $("#importFile").addEventListener("change", importData);
   $("#btnClearData").addEventListener("click", () => {
     if (!confirm("确定清空全部精读数据（文库/生词/打卡/设置）？此操作不可撤销。")) return;
     [K_LIB, K_VOCAB, K_CHECK, K_SET].forEach(k => localStorage.removeItem(k));
-    LIB = []; VOCAB = []; CHECKINS = []; SETTINGS = { accent: "en-US", rate: 1, llm: { base: "", key: "", model: "" } };
+    LIB = []; VOCAB = []; CHECKINS = []; SETTINGS = { accent: "en-US", rate: 1, engine: "auto", useLLMForTranslation: false, llm: { base: "", key: "", model: "" } };
     toast("已清空"); renderHome();
   });
 

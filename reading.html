@@ -265,8 +265,19 @@
           </select>
         </label>
       </div>
+      <label>朗读引擎
+        <select id="setEngine" class="mini">
+          <option value="auto">自动：优先 Edge 自然语音，失败时回退内置朗读</option>
+          <option value="webspeech">强制内置朗读（最稳定，音色选项不可用）</option>
+        </select>
+      </label>
+      <p class="hint" id="engineHint">自动模式下音色下拉选择 Edge 语音；若网络受限 Edge 失败，会切换为浏览器内置朗读。</p>
       <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
-      <p class="hint">可选：配置兼容 OpenAI 的接口用于「AI 主旨总结 / 长难句解析」。不填则用内置提取式总结，离线可用。</p>
+      <div class="rd-row">
+        <label class="rd-check"><input type="checkbox" id="useLLMForTranslation" /> 翻译也使用 LLM（更准确）</label>
+      </div>
+      <p class="hint">可选：配置兼容 OpenAI 的接口后，「全文/段落翻译、主旨总结、长难句解析」都会走你的 LLM，质量更好且不受免费翻译源限制。</p>
+      <p class="hint" style="color:var(--brand)">安全说明：API Key 仅保存在本机浏览器 localStorage 中，不会上传到任何服务器；换电脑/手机或清空浏览器数据后需重新填写。</p>
       <label>API Base URL<input type="text" id="llmBase" placeholder="https://api.openai.com/v1" /></label>
       <label>API Key<input type="password" id="llmKey" placeholder="sk-..." /></label>
       <label>模型名<input type="text" id="llmModel" placeholder="gpt-4o-mini" /></label>
