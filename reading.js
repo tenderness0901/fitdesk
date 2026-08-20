@@ -3,8 +3,10 @@
    纯前端：localStorage 存储 + 免费公开接口（免密钥）
    - 词典：Free Dictionary API + 本地 words1800 兜底
    - 翻译：Google 翻译(免费 gtx 端点) + MyMemory 兜底
-   - 朗读：Web Speech API（英/美音、0.75-1.5x、逐词高亮）
+   - 朗读：Edge TTS 免费自然语音（WebSocket 直连）+ Web Speech 自动回退
    - OCR：Tesseract.js（CDN）
+   功能：点词查词 / 释义弹窗 / 翻译对照 / 生词本 / 朗读跟读 / 文库保存 /
+        编辑-阅读双模式 / 手动分段 / 排版优化 / 阅读打卡 / 长难句批注
    ============================================================ */
 "use strict";
 
@@ -36,6 +38,7 @@ let SETTINGS = loadJSON(K_SET, { accent: "en-US", rate: 1, llm: { base: "", key:
 /* 当前正在阅读的文章（内存态） */
 let CURRENT = null;          // {id,title,tags,notes,raw,paragraphs,createdAt,updatedAt,annotations}
 let WORD_SPANS = [];         // [{el, off}] 供 TTS 高亮
+let MODE = "read";           // read | edit
 const DICT_CACHE = {};       // 词典缓存
 
 /* ---------------- 本地词库（words1800） ---------------- */
@@ -52,6 +55,22 @@ function showView(v) {
   $("#view" + v).classList.add("active");
   if (v === "Home") renderHome();
   window.scrollTo(0, 0);
+}
+
+/* ============================================================
+   编辑 / 阅读 模式切换
+   ============================================================ */
+function setMode(mode) {
+  MODE = mode;
+  const edit = mode === "edit";
+  const ec = $("#editCard"), ac = $("#articleCard"), tc = $("#ttsCard");
+  if (ec) ec.style.display = edit ? "block" : "none";
+  if (ac) ac.style.display = edit ? "none" : "block";
+  if (tc) tc.style.display = edit ? "none" : "block";
+  const be = $("#btnModeEdit"), br = $("#btnModeRead");
+  if (be) be.classList.toggle("active", edit);
+  if (br) br.classList.toggle("active", !edit);
+  if (edit) { const ea = $("#editArea"); if (ea && CURRENT) ea.value = CURRENT.paragraphs.join("\n"); }
 }
 
 /* ============================================================
@@ -155,7 +174,6 @@ async function fetchDict(word) {
         if (m.synonyms) info.synonyms.push(...m.synonyms);
         if (m.antonyms) info.antonyms.push(...m.antonyms);
       }));
-      // 仅在不含本地中文释义时，用英文释义兜底
       if (!info.meaning && defs.length) {
         info.meaning = defs.slice(0, 4).join("；");
         info.pos = entries[0] && entries[0].meanings && entries[0].meanings[0] ? entries[0].meanings[0].partOfSpeech : "";
@@ -177,7 +195,6 @@ function openWordPop(word, x, y, display) {
   $("#popMean").textContent = "";
   $("#popExtra").innerHTML = '<div class="rd-pop-loading">正在加载释义与拓展…</div>';
   pop.style.display = "block";
-  // 定位（避免溢出视口）
   const pw = 320, ph = 340;
   let left = x + 12, top = y + 12;
   if (left + pw > window.innerWidth - 8) left = Math.max(8, x - pw - 12);
@@ -190,7 +207,6 @@ function openWordPop(word, x, y, display) {
     $("#popPos").textContent = info.pos || "";
     $("#popPos").style.display = info.pos ? "inline-block" : "none";
     $("#popMean").textContent = info.meaning || "（未找到本地/在线释义）";
-    // 联想拓展
     let html = "";
     const artEx = sentencesInArticle(word);
     if (artEx.length) {
@@ -206,7 +222,6 @@ function openWordPop(word, x, y, display) {
     if (forms.length) html += '<div><h5>🌱 词形（本地词库）</h5><div class="chips">' + forms.map(f => '<span class="chip" title="' + escapeHtml(f.zh) + '">' + escapeHtml(f.form) + "</span>").join("") + "</div></div>";
     $("#popExtra").innerHTML = html || '<div class="hint">暂无拓展信息</div>';
   });
-  // 暂存当前词，供发音/加生词本使用
   pop._word = word; pop._display = display || word; pop._sentence = sentence;
 }
 
@@ -222,21 +237,205 @@ function getWordForms(word) {
 function closeWordPop() { $("#wordPop").style.display = "none"; }
 
 /* ============================================================
-   TTS 朗读（Web Speech API）
+   TTS 朗读
+   - 主引擎：Edge TTS（免费自然语音，WebSocket 直连）
+   - 回退：浏览器 Web Speech（网络/跨域受限时自动启用）
    ============================================================ */
+const EDGE_TOKEN = "6A5AA1D4EAFF4E9FB37E23C708FK444A";
+const VOICE_LIST = {
+  "en-US": [
+    { id: "en-US-AriaNeural", label: "Aria 女声" },
+    { id: "en-US-DavisNeural", label: "Davis 男声" },
+    { id: "en-US-GuyNeural", label: "Guy 男声" },
+    { id: "en-US-JennyNeural", label: "Jenny 女声" },
+    { id: "en-US-JasonNeural", label: "Jason 男声" },
+    { id: "en-US-SaraNeural", label: "Sara 女声" }
+  ],
+  "en-GB": [
+    { id: "en-GB-RyanNeural", label: "Ryan 男声" },
+    { id: "en-GB-SoniaNeural", label: "Sonia 女声" },
+    { id: "en-GB-LibbyNeural", label: "Libby 女声" },
+    { id: "en-GB-MaisieNeural", label: "Maisie 女声" },
+    { id: "en-GB-ThomasNeural", label: "Thomas 男声" }
+  ]
+};
+function populateVoices() {
+  const sel = $("#voiceSel"); if (!sel) return;
+  const acc = ($("#accentSel") && $("#accentSel").value) || SETTINGS.accent || "en-US";
+  const list = VOICE_LIST[acc] || VOICE_LIST["en-US"];
+  sel.innerHTML = list.map(v => '<option value="' + v.id + '">' + v.label + "</option>").join("");
+}
+function currentEdgeVoice() {
+  const sel = $("#voiceSel");
+  if (sel && sel.value) return sel.value;
+  return ($("#accentSel") && $("#accentSel").value === "en-GB") ? "en-GB-RyanNeural" : "en-US-AriaNeural";
+}
+
+/* Edge TTS 安全令牌（Sec-MS-GEC）：时间戳(Windows文件时) + 固定令牌 → SHA256 */
+function generateSecMsGec() {
+  const TOKEN = EDGE_TOKEN;
+  let ticks = BigInt(Math.floor(Date.now() / 1000)) + 11644473600n;
+  ticks -= ticks % 300n;          // 对齐到 5 分钟
+  ticks = ticks * 10000000n;       // 秒 → 100 纳秒
+  const strToHash = ticks.toString() + TOKEN;
+  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(strToHash))
+    .then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase());
+}
+function rateToPct(rate) {
+  const p = Math.round((parseFloat(rate) - 1) * 100);
+  return (p >= 0 ? "+" : "") + p + "%";
+}
+function buildSSML(text, voice, ratePct) {
+  const safe = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const lang = voice.indexOf("en-GB") === 0 ? "en-GB" : "en-US";
+  return "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='" + lang + "'>" +
+    "<voice name='" + voice + "'><prosody rate='" + ratePct + "' pitch='+0Hz' volume='+0%'>" + safe + "</prosody></voice></speak>";
+}
+function parseWsHeaders(str) {
+  const i = str.indexOf("\r\n\r\n");
+  const head = i < 0 ? str : str.slice(0, i);
+  const body = i < 0 ? "" : str.slice(i + 4);
+  const headers = {};
+  head.split("\r\n").forEach(line => {
+    const c = line.indexOf(":");
+    if (c > 0) headers[line.slice(0, c).trim()] = line.slice(c + 1).trim();
+  });
+  return { headers, body };
+}
+
+/* 连接 Edge TTS，返回 {audioUrl, boundaries}（Promise） */
+function edgeSynthesize(text) {
+  return new Promise((resolve, reject) => {
+    if (typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle) { reject(new Error("环境不支持 Edge TTS")); return; }
+    let settled = false;
+    const finish = (ok, val) => { if (settled) return; settled = true; clearTimeout(timeout); if (ok) resolve(val); else reject(val); };
+    generateSecMsGec().then(gec => {
+      const connId = (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === "x" ? "x" : (r & 0x3 | 0x8)).toString(16); }));
+      const url = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
+        "?TrustedClientToken=" + EDGE_TOKEN + "&Sec-MS-GEC=" + encodeURIComponent(gec) + "&Sec-MS-GEC-Version=1&ConnectionId=" + connId;
+      let ws;
+      try { ws = new WebSocket(url); } catch (e) { return finish(false, e); }
+      ws.binaryType = "arraybuffer";
+      const chunks = [];
+      const boundaries = [];
+      let ptr = 0;
+      const ts = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+      const voice = currentEdgeVoice();
+      const ratePct = rateToPct($("#rateRange") ? $("#rateRange").value : "1");
+      let done = false;
+      const timeout = setTimeout(() => { try { ws.close(); } catch (_) {} finish(false, new Error("Edge TTS 超时（网络/跨域可能受限）")); }, 20000);
+
+      ws.onopen = () => {
+        try {
+          ws.send("X-Timestamp:" + ts + "\r\nContent-Type:application/json\r\nPath:speech.config\r\n\r\n" +
+            JSON.stringify({ context: { synthesis: { audio: { metadataOptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: "audio-24khz-48kbitrate-mono-mp3" } } } }));
+          ws.send("X-RequestId:" + connId + "\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:" + ts + "\r\nPath:ssml\r\n\r\n" + buildSSML(text, voice, ratePct));
+        } catch (e) { finish(false, e); }
+      };
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === "string") {
+          const { headers, body } = parseWsHeaders(ev.data);
+          const path = (headers["Path"] || "").toLowerCase();
+          if (path === "turn.end") { done = true; try { ws.close(); } catch (_) {} emit(); }
+          else if (path === "audio.metadata") {
+            try {
+              const j = JSON.parse(body);
+              if (j && j.Type === "WordBoundary" && j.Data) {
+                const w = j.Data.text || "";
+                const idx = text.indexOf(w, ptr);
+                const ci = idx >= 0 ? idx : ptr;
+                ptr = idx >= 0 ? idx + w.length : ptr + w.length;
+                boundaries.push({ offsetSec: (j.Data.Offset || 0) / 1e7, charIndex: ci, text: w });
+              }
+            } catch (_) {}
+          }
+        } else {
+          const buf = new Uint8Array(ev.data);
+          if (buf.length < 2) return;
+          const hl = (buf[0] << 8) | buf[1];
+          chunks.push(buf.slice(2 + hl));
+        }
+      };
+      ws.onerror = () => { if (!done) finish(false, new Error("Edge TTS 连接错误（网络/跨域可能受限）")); };
+      ws.onclose = () => { if (!done) emit(); };
+      function emit() {
+        if (!chunks.length) { finish(false, new Error("Edge TTS 未返回音频")); return; }
+        let total = 0; chunks.forEach(c => total += c.length);
+        const out = new Uint8Array(total); let p = 0;
+        chunks.forEach(c => { out.set(c, p); p += c.length; });
+        const blob = new Blob([out], { type: "audio/mpeg" });
+        finish(true, { audioUrl: URL.createObjectURL(blob), boundaries });
+      }
+    }).catch(e => finish(false, e));
+  });
+}
+
+let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0 };
+function clearHi() { if (TTS.curHi) { TTS.curHi.classList.remove("hl"); TTS.curHi = null; } }
+
+/* 高亮：根据字符偏移定位当前单词 span */
+function highlightAtChar(ci) {
+  let hit = null;
+  for (const s of WORD_SPANS) { if (s.off <= ci) hit = s; else break; }
+  if (hit && hit.el !== TTS.curHi) { clearHi(); hit.el.classList.add("hl"); TTS.curHi = hit.el; }
+}
+
+/* 入口：朗读（主 Edge，回退 Web Speech） */
+async function speakText(text, opts) {
+  opts = opts || {};
+  const reqId = opts.reqId || 0;
+  // 超长文本或环境不支持 → 直接走内置朗读
+  if (text.length > 5000 || typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle) {
+    return speakTextWebSpeech(text, opts);
+  }
+  try {
+    if (opts.highlight) await playArticleEdge(reqId);
+    else {
+      const d = await edgeSynthesize(text);
+      if (reqId && TTS.reqId !== reqId) return;
+      TTS.engine = "edge"; TTS.audio = new Audio(d.audioUrl);
+      TTS.audio.onended = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
+      TTS.audio.onerror = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
+      await TTS.audio.play(); TTS.state = "playing";
+    }
+  } catch (e) {
+    console.warn("Edge TTS 不可用，回退内置朗读：", e.message);
+    if (opts.highlight) toast("Edge TTS 当前不可用，已切换为内置朗读");
+    if (reqId && TTS.reqId !== reqId) return;
+    speakTextWebSpeech(text, opts);
+  }
+}
+
+async function playArticleEdge(reqId) {
+  const data = await edgeSynthesize(getSpokenText());
+  if (reqId && TTS.reqId !== reqId) { try { URL.revokeObjectURL(data.audioUrl); } catch (_) {} return; }
+  TTS.engine = "edge"; TTS.audio = new Audio(data.audioUrl);
+  TTS.boundaries = data.boundaries.slice().sort((a, b) => a.offsetSec - b.offsetSec);
+  TTS.curBoundaryIdx = -1;
+  const audio = TTS.audio;
+  audio.onended = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
+  audio.onerror = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
+  audio.ontimeupdate = () => {
+    const t = audio.currentTime;
+    let idx = -1;
+    for (let i = 0; i < TTS.boundaries.length; i++) { if (TTS.boundaries[i].offsetSec <= t) idx = i; else break; }
+    if (idx >= 0 && idx !== TTS.curBoundaryIdx) { TTS.curBoundaryIdx = idx; highlightAtChar(TTS.boundaries[idx].charIndex); }
+  };
+  await audio.play(); TTS.state = "playing";
+}
+
+/* Web Speech 回退实现 */
 let VOICES = [];
 function loadVoices() { try { VOICES = speechSynthesis.getVoices() || []; } catch (e) { VOICES = []; } }
 if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
 function pickVoice(accent) { return VOICES.find(v => v.lang === accent) || VOICES.find(v => v.lang && v.lang.startsWith(accent.slice(0, 2))) || null; }
 
-let TTS = { state: "idle", utt: null, curHi: null };
-function clearHi() { if (TTS.curHi) { TTS.curHi.classList.remove("hl"); TTS.curHi = null; } }
-function speakText(text, opts) {
+function speakTextWebSpeech(text, opts) {
   if (!("speechSynthesis" in window)) { toast("当前浏览器不支持语音朗读"); return; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.rate = parseFloat($("#rateRange").value || "1");
-  const v = pickVoice($("#accentSel").value || SETTINGS.accent); if (v) u.voice = v;
+  u.rate = parseFloat($("#rateRange") ? $("#rateRange").value : "1") || 1;
+  const v = pickVoice($("#accentSel") ? $("#accentSel").value : SETTINGS.accent); if (v) u.voice = v;
   if (opts && opts.highlight) {
     u.onboundary = (ev) => {
       const ci = ev.charIndex || 0;
@@ -246,28 +445,56 @@ function speakText(text, opts) {
     };
     u.onend = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
     u.onerror = () => { clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
+  } else {
+    u.onend = () => { TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; };
   }
-  TTS.utt = u; TTS.state = "playing";
+  TTS.engine = "webspeech"; TTS.state = "playing";
   speechSynthesis.speak(u);
 }
+
 function playArticle() {
-  if (TTS.state === "playing") { speechSynthesis.pause(); TTS.state = "paused"; $("#btnPlay").textContent = "⏸ 继续"; return; }
-  if (TTS.state === "paused") { speechSynthesis.resume(); TTS.state = "playing"; $("#btnPlay").textContent = "⏸ 暂停"; return; }
+  if (TTS.state === "playing") { pauseTTS(); return; }
+  if (TTS.state === "paused") { resumeTTS(); return; }
   $("#btnPlay").textContent = "⏸ 暂停";
-  speakText(getSpokenText(), { highlight: true });
+  TTS.state = "playing"; TTS.reqId++;
+  speakText(getSpokenText(), { highlight: true, reqId: TTS.reqId });
 }
-function stopTTS() { speechSynthesis.cancel(); clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; }
-function speakWord(w) {
+function pauseTTS() {
+  if (TTS.engine === "edge" && TTS.audio) { TTS.audio.pause(); TTS.state = "paused"; $("#btnPlay").textContent = "⏸ 继续"; }
+  else if (TTS.engine === "webspeech") { speechSynthesis.pause(); TTS.state = "paused"; $("#btnPlay").textContent = "⏸ 继续"; }
+}
+function resumeTTS() {
+  if (TTS.engine === "edge" && TTS.audio) { TTS.audio.play(); TTS.state = "playing"; $("#btnPlay").textContent = "⏸ 暂停"; }
+  else if (TTS.engine === "webspeech") { speechSynthesis.resume(); TTS.state = "playing"; $("#btnPlay").textContent = "⏸ 暂停"; }
+}
+function stopTTS() {
+  if (TTS.engine === "edge" && TTS.audio) { try { TTS.audio.pause(); } catch (_) {} TTS.audio = null; }
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; TTS.reqId++;
+}
+
+/* 单词发音（优先 Edge TTS） */
+async function speakWord(w) {
+  if (typeof WebSocket === "undefined" || !window.crypto || !crypto.subtle || w.length > 200) { speakWordWebSpeech(w); return; }
+  try {
+    const d = await edgeSynthesize(w);
+    const a = new Audio(d.audioUrl); TTS.engine = "edge"; TTS.audio = a;
+    a.onended = () => { TTS.audio = null; };
+    await a.play();
+  } catch (e) { speakWordWebSpeech(w); }
+}
+function speakWordWebSpeech(w) {
   if (!("speechSynthesis" in window)) { toast("当前浏览器不支持发音"); return; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(w);
-  const v = pickVoice($("#accentSel").value || SETTINGS.accent); if (v) u.voice = v;
+  const v = pickVoice($("#accentSel") ? $("#accentSel").value : SETTINGS.accent); if (v) u.voice = v;
   speechSynthesis.speak(u);
 }
+
 function readSelection() {
   const sel = window.getSelection(); const txt = (sel && sel.toString() || "").trim();
   if (!txt) { toast("请先在文章中选中一段文字"); return; }
-  stopTTS(); speakText(txt, { highlight: false });
+  stopTTS(); TTS.reqId++; speakText(txt, { highlight: false, reqId: TTS.reqId });
 }
 
 /* ============================================================
@@ -322,22 +549,19 @@ async function renderTranslationAndAI() {
   $("#trPara").innerHTML = '<div class="rd-ai-loading">⏳ 正在生成逐段对照…</div>';
   $("#trAI").innerHTML = '<div class="rd-ai-loading">⏳ 正在生成主旨与长难句解析…</div>';
 
-  // 全文大意
   const summaryZh = await translateLong(CURRENT.raw);
   $("#trSummary").innerHTML = '<div class="t">📝 全文大意（意译）</div>' + escapeHtml(summaryZh);
 
-  // 逐段对照
   const blocks = await Promise.all(CURRENT.paragraphs.map(async p => {
     const zh = await translate(p);
     return '<div class="rd-tr-block"><div class="rd-tr-en">' + escapeHtml(p) + '</div><div class="rd-tr-zh">' + escapeHtml(zh) + "</div></div>";
   }));
   $("#trPara").innerHTML = blocks.join("");
 
-  // 主旨 + 长难句
   const llm = SETTINGS.llm && SETTINGS.llm.base && SETTINGS.llm.key ? SETTINGS.llm : null;
-  let mainIdea, longHtml;
+  let mainIdea;
   if (llm) {
-    mainIdea = await llmChat("你是英语老师，请用中文用 3-5 句话概括下面英文文章的主旨，简洁、面向中文学习者。", CURRENT.raw);
+    try { mainIdea = await llmChat("你是英语老师，请用中文用 3-5 句话概括下面英文文章的主旨，简洁、面向中文学习者。", CURRENT.raw); } catch (_) {}
   }
   if (!mainIdea) mainIdea = await translate(extractiveSummary());
   let ai = '<div class="rd-ai-card"><h4>🧠 主旨总结</h4><div class="ai-body">' + escapeHtml(mainIdea || "（无）") + "</div></div>";
@@ -357,7 +581,6 @@ async function renderTranslationAndAI() {
   $("#trAI").innerHTML = ai;
 }
 
-/* 可选 LLM 调用（OpenAI 兼容） */
 async function llmChat(system, user) {
   try {
     const { base, key, model } = SETTINGS.llm;
@@ -374,15 +597,20 @@ async function llmChat(system, user) {
    文库（文章保存 / 列表 / 打开 / 删除）
    ============================================================ */
 function splitParagraphs(text) {
-  return text.split(/\n+/).map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+  // 保留原有换行：每行即一个段落，不自动合并；空行忽略
+  return text.split(/\n/).map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
-function startFromText(text) {
+function startFromText(text, editFirst) {
   const paras = splitParagraphs(text);
   if (!paras.length) { toast("没有可识别的英文段落"); return; }
   CURRENT = { id: null, title: "", tags: [], notes: "", raw: paras.join("\n"), paragraphs: paras, createdAt: todayStr(), updatedAt: todayStr(), annotations: [] };
-  enterReader();
+  $("#artTitle").value = ""; $("#artTags").value = ""; $("#artNotes").value = "";
+  showView("Reader");
+  if (editFirst) setMode("edit");
+  else enterReader();
 }
 function enterReader() {
+  setMode("read");
   $("#artTitle").value = CURRENT.title || "";
   $("#artTags").value = (CURRENT.tags || []).join(", ");
   $("#artNotes").value = CURRENT.notes || "";
@@ -504,9 +732,7 @@ function doCheckin() {
 }
 function calcStreak() {
   const set = new Set(CHECKINS); let n = 0; let d = new Date();
-  if (!set.has(todayStr(d))) { // 今天未打卡则从昨天往前
-    d = dateAdd(d, -1);
-  }
+  if (!set.has(todayStr(d))) { d = dateAdd(d, -1); }
   while (set.has(todayStr(d))) { n++; d = dateAdd(d, -1); }
   return n;
 }
@@ -533,13 +759,9 @@ function renderCheckin() {
 function addAnnoFromSelection() {
   const sel = window.getSelection(); const txt = (sel && sel.toString() || "").trim();
   if (!txt) { toast("请先选中要划线的句子"); return; }
-  // 找到选中文本所属段落
   let para = -1;
   if (sel.anchorNode) { const p = (sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode).closest(".rd-para"); if (p) para = parseInt(p.dataset.pi, 10); }
   if (para < 0) { toast("请在文章正文中选中"); return; }
-  if (CURRENT.paragraphs[para].indexOf(txt) < 0 && !CURRENT.paragraphs[para].includes(txt.slice(0, 20))) {
-    // 跨段或不精确，放到所属段
-  }
   const note = prompt("为这句批注写点笔记（可留空）：", "") || "";
   CURRENT.annotations.push({ id: uid(), text: txt, para, note, createdAt: todayStr() });
   sel.removeAllRanges();
@@ -585,14 +807,12 @@ function renderHome() {
    OCR 多线路重试
    ============================================================ */
 async function runOCRWithFallback(Tess, file, logger) {
-  // 根据已加载的脚本版本推断基础 CDN，并准备回退
   const bases = [];
   const scripts = Array.from(document.querySelectorAll('script[src*="tesseract"]'));
   const loadedSrc = scripts.find(s => /tesseract(\.min)?\.js/.test(s.src))?.src || '';
   if (loadedSrc.includes('jsdelivr.net')) bases.push('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist');
   if (loadedSrc.includes('unpkg.com')) bases.push('https://unpkg.com/tesseract.js@5.1.1/dist');
   if (loadedSrc.includes('bootcdn.net')) bases.push('https://cdn.bootcdn.net/ajax/libs/tesseract.js/5.1.1');
-  // 保底再试一遍常见 CDN
   bases.push('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist');
   bases.push('https://unpkg.com/tesseract.js@5.1.1/dist');
   bases.push('https://cdn.bootcdn.net/ajax/libs/tesseract.js/5.1.1');
@@ -634,7 +854,6 @@ function bind() {
     $("#tabPaste").style.display = t === "paste" ? "block" : "none";
     $("#tabOcr").style.display = t === "ocr" ? "block" : "none";
   }));
-  // 粘贴字数
   $("#pasteArea").addEventListener("input", () => {
     const n = $("#pasteArea").value.trim().split(/\s+/).filter(Boolean).length;
     $("#pasteCount").textContent = n ? "约 " + n + " 词" : "";
@@ -642,7 +861,7 @@ function bind() {
   $("#btnStartRead").addEventListener("click", () => {
     const t = $("#pasteArea").value;
     if (!t.trim()) { toast("请先粘贴英文文章"); return; }
-    startFromText(t);
+    startFromText(t, false);
   });
 
   // OCR（带多 CDN 重试与显式 worker/lang 路径）
@@ -656,7 +875,6 @@ function bind() {
       ]);
       if (!Tess) throw new Error("OCR 引擎未加载（网络不可用）。可改用「粘贴文本」方式。");
       $("#ocrStatus").textContent = "⏳ 正在识别图片文字（首次需下载识别数据，约 10 MB，请稍候）…";
-
       const res = await runOCRWithFallback(Tess, f, (m) => {
         if (m.status === "recognizing text") $("#ocrStatus").textContent = "⏳ 识别中… " + Math.round((m.progress || 0) * 100) + "%";
         else if (m.status === "loading language traineddata") $("#ocrStatus").textContent = "⏳ 正在下载英文识别数据… " + Math.round((m.progress || 0) * 100) + "%";
@@ -671,10 +889,11 @@ function bind() {
     }
     e.target.value = "";
   });
+  // OCR 识别完成后 → 进入编辑预览（校对/分段），不直接进只读
   $("#btnOcrImport").addEventListener("click", () => {
     const t = $("#ocrResult").value;
     if (!t.trim()) { toast("没有可导入的文字"); return; }
-    startFromText(t);
+    startFromText(t, true);
   });
 
   // 顶栏
@@ -683,13 +902,30 @@ function bind() {
   $("#btnCheckin").addEventListener("click", () => { renderCheckin(); openModal("#checkinModal"); });
   $("#btnSettings").addEventListener("click", openSettings);
 
-  // 精读页
+  // 精读页：模式切换
+  $("#btnModeRead").addEventListener("click", () => { if (!CURRENT) { toast("请先导入文章"); return; } setMode("read"); renderArticle(); });
+  $("#btnModeEdit").addEventListener("click", () => { if (!CURRENT) { toast("请先导入文章"); return; } setMode("edit"); });
+  $("#btnSplitPara").addEventListener("click", () => {
+    const ta = $("#editArea"); const s = ta.selectionStart, e = ta.selectionEnd; const v = ta.value;
+    ta.value = v.slice(0, s) + "\n" + v.slice(e);
+    const pos = s + 1; ta.focus(); ta.setSelectionRange(pos, pos);
+  });
+  $("#btnSaveEdit").addEventListener("click", () => {
+    const paras = splitParagraphs($("#editArea").value);
+    if (!paras.length) { toast("没有可保存的文字"); return; }
+    CURRENT.paragraphs = paras; CURRENT.raw = paras.join("\n");
+    enterReader();
+  });
+  $("#btnCancelEdit").addEventListener("click", () => { setMode("read"); renderArticle(); });
+
+  // 精读页：保存 / 朗读
   $("#btnBackHome").addEventListener("click", () => { if (CURRENT && !CURRENT.id) { if (!confirm("当前文章尚未保存，返回将丢失。确定？")) return; } showView("Home"); });
   $("#btnSaveArticle").addEventListener("click", saveArticle);
   $("#btnPlay").addEventListener("click", playArticle);
   $("#btnStop").addEventListener("click", stopTTS);
   $("#btnReadSel").addEventListener("click", readSelection);
   $("#rateRange").addEventListener("input", () => { $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(2) + "x"; });
+  $("#accentSel").addEventListener("change", () => { populateVoices(); });
   $("#btnToggleTr").addEventListener("click", () => {
     const hide = $("#trPara").classList.toggle("hide-zh");
     $("#btnToggleTr").textContent = hide ? "显示译文" : "隐藏译文";
@@ -782,8 +1018,7 @@ function bind() {
   $("#llmBase").value = (SETTINGS.llm && SETTINGS.llm.base) || "";
   $("#llmKey").value = (SETTINGS.llm && SETTINGS.llm.key) || "";
   $("#llmModel").value = (SETTINGS.llm && SETTINGS.llm.model) || "";
-  $("#btnSettings").addEventListener("click", () => {}); // 已绑定上方
-  $("#setAccent").addEventListener("change", () => { SETTINGS.accent = $("#setAccent").value; saveJSON(K_SET, SETTINGS); $("#accentSel").value = SETTINGS.accent; });
+  $("#setAccent").addEventListener("change", () => { SETTINGS.accent = $("#setAccent").value; saveJSON(K_SET, SETTINGS); $("#accentSel").value = SETTINGS.accent; populateVoices(); });
   $("#setRate").addEventListener("change", () => { SETTINGS.rate = parseFloat($("#setRate").value); saveJSON(K_SET, SETTINGS); $("#rateRange").value = SETTINGS.rate; $("#rateVal").textContent = SETTINGS.rate.toFixed(2) + "x"; });
   $("#btnExportData").addEventListener("click", exportData);
   $("#btnImportData").addEventListener("click", () => $("#importFile").click());
@@ -848,6 +1083,7 @@ function init() {
   $("#accentSel").value = SETTINGS.accent || "en-US";
   $("#rateRange").value = SETTINGS.rate || 1;
   $("#rateVal").textContent = (SETTINGS.rate || 1).toFixed(2) + "x";
+  populateVoices();
   showView("Home");
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

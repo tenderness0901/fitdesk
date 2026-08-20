@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>加班台账 · FitDesk</title>
+<meta name="theme-color" content="#ff6b35" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<link rel="manifest" href="manifest.json" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="overtime.css" />
+<script>
+(function(){
+  window._errs=[];
+  function showErr(msg){
+    window._errs.push(msg);
+    var box=document.getElementById('__errbox'); if(!box) return;
+    box.style.display='block';
+    var p=document.createElement('div');
+    p.style.cssText='font-size:12px;line-height:1.4;border-bottom:1px solid rgba(255,255,255,.2);padding:4px 0;';
+    p.textContent=msg; box.appendChild(p);
+  }
+  window.onerror=function(msg,url,line,col){ showErr('JS错误: '+msg+' @'+line+':'+(col||0)); };
+  window.addEventListener('unhandledrejection',function(e){ showErr('Promise错误: '+(e.reason&&e.reason.message?e.reason.message:String(e.reason))); });
+})();
+</script>
+</head>
+<body>
+<div id="__errbox" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#ff4d4f;color:#fff;padding:10px 14px;font-size:13px;max-height:40vh;overflow:auto;">
+  <div style="font-weight:700;margin-bottom:6px;">加班台账 运行出错，请截图给我</div>
+</div>
+
+<!-- 顶栏 -->
+<header class="ov-topbar">
+  <a class="ov-back" href="index.html" title="返回工作台首页">← 返回工作台</a>
+  <div class="ov-title">⏰ 加班 & 加班费台账</div>
+  <div class="ov-actions">
+    <button class="btn ghost sm" id="btnOvSettings">⚙ 设置</button>
+    <button class="btn ghost sm" id="btnExport">⬇ 导出</button>
+  </div>
+</header>
+
+<div class="ov-wrap">
+
+  <!-- ===================== 统计看板 ===================== -->
+  <div class="card ov-stats-card">
+    <div class="card-head">
+      <h3>📊 统计看板</h3>
+      <div class="ov-period-sel">
+        <select id="statYear" class="mini"></select>
+        <select id="statMonth" class="mini"></select>
+        <button class="btn sm" id="btnStatMonth">查月度</button>
+        <button class="btn sm" id="btnStatYear">查全年</button>
+      </div>
+    </div>
+
+    <!-- 月度统计 -->
+    <div id="statMonthView">
+      <div class="grid-3 compact ov-kpi" id="monthKpi"></div>
+      <div class="ov-breakdown" id="monthBreakdown"></div>
+    </div>
+
+    <!-- 年度统计 -->
+    <div id="statYearView" style="display:none">
+      <div class="grid-3 compact ov-kpi" id="yearKpi"></div>
+      <div class="ov-monthly-table" id="yearMonthlyTable"></div>
+    </div>
+  </div>
+
+  <!-- ===================== 新增加班录入 ===================== -->
+  <div class="card">
+    <div class="card-head">
+      <h3 id="formTitle">➕ 新增加班记录</h3>
+      <button class="btn ghost sm" id="btnCancelEdit" style="display:none">取消编辑</button>
+    </div>
+    <div class="form">
+      <div class="row-2">
+        <label>加班日期
+          <input type="date" id="otDate" />
+        </label>
+        <label>加班类型
+          <select id="otType" class="mini">
+            <option value="weekday">工作日延时（1.5倍）</option>
+            <option value="restday">休息日（2倍）</option>
+            <option value="holiday">法定节假日（3倍）</option>
+            <option value="compoff">调休（不计费）</option>
+            <option value="free">无偿加班（不计费）</option>
+          </select>
+        </label>
+      </div>
+      <div class="row-2">
+        <label>录入方式
+          <select id="otMode" class="mini">
+            <option value="hours">填写加班小时</option>
+            <option value="time">填写起止时间</option>
+          </select>
+        </label>
+        <div id="otHoursBox">
+          <label>加班时长（小时）
+            <input type="number" id="otHours" step="0.5" min="0" placeholder="如 3.5" />
+          </label>
+        </div>
+        <div id="otTimeBox" style="display:none">
+          <div class="row-2">
+            <label>开始时间<input type="time" id="otStart" /></label>
+            <label>结束时间<input type="time" id="otEnd" /></label>
+          </div>
+        </div>
+      </div>
+      <label>备注（加班事由）
+        <input type="text" id="otNote" placeholder="如：项目上线加班" />
+      </label>
+      <div class="ov-calc-preview" id="calcPreview"></div>
+      <div class="ov-form-actions">
+        <button class="btn primary" id="btnAddOt">✓ 添加记录</button>
+        <button class="btn sm" id="btnSaveEdit" style="display:none">💾 保存修改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 台账列表 ===================== -->
+  <div class="card">
+    <div class="card-head">
+      <h3>📋 加班台账</h3>
+      <div class="ov-filters">
+        <select id="filterMonth" class="mini"><option value="">全部月份</option></select>
+        <select id="filterType" class="mini">
+          <option value="">全部类型</option>
+          <option value="weekday">工作日延时</option>
+          <option value="restday">休息日</option>
+          <option value="holiday">法定节假日</option>
+          <option value="compoff">调休</option>
+          <option value="free">无偿加班</option>
+        </select>
+        <input type="text" id="filterSearch" class="mini" placeholder="搜索备注…" />
+      </div>
+    </div>
+    <div id="otList" class="list ov-list"></div>
+  </div>
+
+  <!-- ===================== 工资实发录入 ===================== -->
+  <div class="card">
+    <div class="card-head">
+      <h3>💰 工资实发对比</h3>
+      <button class="btn sm" id="btnAddSalary">➕ 录入工资</button>
+    </div>
+    <div id="salaryList" class="list ov-salary-list"></div>
+  </div>
+
+</div>
+
+<!-- ===================== 弹窗 ===================== -->
+
+<!-- 设置弹窗 -->
+<div class="modal" id="settingsModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head"><h3>⚙ 加班费计算设置</h3><button class="x" data-close>✕</button></div>
+    <div class="form">
+      <div class="row-2">
+        <label>月基本工资（元）
+          <input type="number" id="setBaseSalary" step="100" min="0" placeholder="如 8000" />
+        </label>
+        <label>计薪天数
+          <input type="number" id="setWorkDays" step="0.25" min="1" value="21.75" />
+        </label>
+      </div>
+      <div class="row-2">
+        <label>每日标准工时（小时）
+          <input type="number" id="setDailyHours" step="0.5" min="1" value="8" />
+        </label>
+        <label>基础时薪（自动换算）
+          <input type="text" id="setHourlyRate" readonly class="ov-readonly" />
+        </label>
+      </div>
+      <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
+      <p class="hint">加班倍率（可手动调整）：</p>
+      <div class="row-2">
+        <label>工作日延时倍数<input type="number" id="setMultWeekday" step="0.1" min="0" value="1.5" /></label>
+        <label>休息日倍数<input type="number" id="setMultRestday" step="0.1" min="0" value="2" /></label>
+      </div>
+      <div class="row-2">
+        <label>法定节假日倍数<input type="number" id="setMultHoliday" step="0.1" min="0" value="3" /></label>
+        <label>调休 / 无偿加班（不计费，倍数固定 0）</label>
+      </div>
+      <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
+      <p class="hint">加班时长取整设置（可选）：</p>
+      <div class="row-2">
+        <label>启用取整
+          <select id="setRoundEnable" class="mini">
+            <option value="0">不取整（精确到 0.5 小时）</option>
+            <option value="1">启用取整</option>
+          </select>
+        </label>
+        <label>最低起算时长（小时）
+          <input type="number" id="setMinHours" step="0.5" min="0" value="0.5" />
+        </label>
+      </div>
+      <div class="row-2">
+        <label>取整规则
+          <select id="setRoundRule" class="mini">
+            <option value="up">向上取整（不足按 1 小时算）</option>
+            <option value="half">四舍五入到 0.5 小时</option>
+            <option value="down">向下取整</option>
+          </select>
+        </label>
+        <label></label>
+      </div>
+      <div class="ov-set-actions">
+        <button class="btn primary" id="btnSaveSettings">💾 保存设置</button>
+        <button class="btn" id="btnResetSettings">恢复默认</button>
+      </div>
+      <div id="settingsStatus" class="hint"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 工资录入弹窗 -->
+<div class="modal" id="salaryModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="salaryModalTitle">💰 录入工资实发</h3><button class="x" data-close>✕</button></div>
+    <div class="form">
+      <div class="row-2">
+        <label>年份
+          <select id="salYear" class="mini"></select>
+        </label>
+        <label>月份
+          <select id="salMonth" class="mini"></select>
+        </label>
+      </div>
+      <label>实际到手工资（元）
+        <input type="number" id="salActual" step="0.01" min="0" placeholder="如实发金额" />
+      </label>
+      <label>差额备注
+        <input type="text" id="salDiffNote" placeholder="如：含绩效奖金/扣除社保" />
+      </label>
+      <div class="ov-sal-preview" id="salPreview"></div>
+      <button class="btn primary" id="btnSaveSalary">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="overtime.js"></script>
+</body>
+</html>

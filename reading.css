@@ -43,15 +43,26 @@
 .rd-title-input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:16px;font-weight:800;color:var(--ink)}
 .rd-title-input:focus{outline:none;border-color:var(--brand)}
 
+/* 模式切换 */
+.rd-mode-toggle{display:flex;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:3px}
+.rd-mode-toggle .mode-btn{padding:6px 12px;font-size:12px;font-weight:700;border:none;background:transparent;color:var(--muted);border-radius:8px}
+.rd-mode-toggle .mode-btn.active{background:var(--brand);color:#fff}
+
 /* TTS 控制 */
 .rd-tts-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.rd-speed,.rd-accent{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
+.rd-speed,.rd-accent,.rd-voice{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
 .rd-speed input[type=range]{width:120px}
+.rd-tts-engine{margin-top:8px;font-size:12px;color:var(--muted)}
+
+/* 编辑模式卡片 */
+.rd-edit-card .rd-edit-bar{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.rd-edit-card .rd-edit-bar .btn{flex:0 0 auto}
 
 /* 文章 */
 .rd-article-card{background:#fff}
-.rd-article{font-size:17px;line-height:2;color:#22303f;letter-spacing:.2px}
-.rd-article .rd-para{margin:0 0 16px;text-align:justify}
+.rd-article{font-size:17px;line-height:1.7;color:#22303f;letter-spacing:.2px}
+.rd-article .rd-para{margin:0 0 18px;text-indent:2ch;text-align:justify}
+.rd-article .rd-para:last-child{margin-bottom:0}
 .rd-article .w{color:var(--brand3);cursor:pointer;border-radius:3px;padding:0 1px;transition:background .1s}
 .rd-article .w:hover{background:var(--soft3)}
 .rd-article .w.hl{background:#ffe27a;color:#1f2733;box-shadow:0 0 0 2px #ffe27a}
@@ -138,7 +149,7 @@
 
 @media (max-width:600px){
   .rd-wrap{padding:12px 10px 70px}
-  .rd-article{font-size:16px;line-height:1.95}
+  .rd-article{font-size:16px;line-height:1.7}
   .rd-title{font-size:15px}
   .rd-actions .btn{padding:6px 9px;font-size:12px}
   .rd-textarea{min-height:160px}

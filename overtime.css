@@ -1,0 +1,91 @@
+/* ===== 加班台账模块 · 复用工作台设计系统（styles.css 的 CSS 变量）===== */
+.ov-topbar{display:flex;align-items:center;gap:12px;padding:12px 18px;background:var(--panel);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.ov-back{text-decoration:none;color:var(--ink);font-weight:700;font-size:13px;background:var(--bg);
+  border:1px solid var(--line);border-radius:10px;padding:7px 12px;white-space:nowrap}
+.ov-back:hover{filter:brightness(.97)}
+.ov-title{font-size:17px;font-weight:800;flex:1}
+.ov-actions{display:flex;gap:6px;flex-wrap:wrap}
+
+.ov-wrap{max-width:920px;margin:0 auto;padding:18px 16px 60px;width:100%}
+
+/* 统计看板 */
+.ov-period-sel{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ov-kpi{margin-bottom:14px}
+.ov-kpi .ov-stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:center}
+.ov-kpi .ov-stat .rs-v{font-size:22px;font-weight:800;color:var(--brand)}
+.ov-kpi .ov-stat .rs-l{font-size:12px;color:var(--muted);margin-top:2px}
+.ov-kpi .ov-stat .rs-sub{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* 分类明细 */
+.ov-breakdown{display:flex;flex-direction:column;gap:8px}
+.ov-bd-row{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.ov-bd-row .ov-bd-tag{font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;min-width:90px;text-align:center}
+.ov-bd-row .ov-bd-hours{font-size:14px;font-weight:700;color:var(--ink)}
+.ov-bd-row .ov-bd-pay{font-size:13px;color:var(--brand);font-weight:600;margin-left:auto}
+.ov-bd-row .ov-bd-bar{flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;min-width:40px}
+.ov-bd-row .ov-bd-bar-fill{height:100%;background:var(--brand);border-radius:3px;transition:width .3s}
+
+/* 月度表格 */
+.ov-monthly-table{margin-top:10px;overflow-x:auto}
+.ov-monthly-table table{width:100%;border-collapse:collapse;font-size:12px}
+.ov-monthly-table th{padding:6px 8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}
+.ov-monthly-table td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.ov-monthly-table .mt-month{font-weight:700}
+.ov-monthly-table .mt-pay{color:var(--brand);font-weight:700}
+.ov-monthly-table .mt-total td{font-weight:800;border-top:2px solid var(--line);background:var(--bg)}
+
+/* 录入表单 */
+.ov-calc-preview{background:var(--soft3);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--brand3);font-weight:600;line-height:1.6;min-height:38px}
+.ov-calc-preview .cp-pay{font-size:18px;font-weight:800;color:var(--brand)}
+.ov-form-actions{display:flex;gap:8px}
+.ov-readonly{background:var(--bg)!important;color:var(--muted)!important;font-weight:700}
+
+/* 台账列表 */
+.ov-filters{display:flex;gap:6px;flex-wrap:wrap}
+.ov-list .ov-row{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px;flex-wrap:wrap}
+.ov-row .ov-r-date{font-weight:800;font-size:14px;min-width:88px}
+.ov-row .ov-r-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.ov-r-tag.weekday{background:var(--soft3);color:var(--brand3)}
+.ov-r-tag.restday{background:var(--soft2);color:var(--brand2)}
+.ov-r-tag.holiday{background:var(--soft);color:var(--brand)}
+.ov-r-tag.compoff{background:#f0f0f0;color:#666}
+.ov-r-tag.free{background:#f5f5f5;color:#999}
+.ov-row .ov-r-hours{font-size:13px;font-weight:600;color:var(--ink)}
+.ov-row .ov-r-pay{font-size:14px;font-weight:800;color:var(--brand);margin-left:auto}
+.ov-row .ov-r-pay.unpaid{color:var(--muted);font-weight:600;font-size:13px}
+.ov-row .ov-r-note{font-size:12px;color:var(--muted);width:100%;margin-top:2px}
+.ov-row .ov-r-status{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700}
+.ov-r-status.pending{background:#fff3e0;color:#e65100}
+.ov-r-status.settled{background:var(--soft2);color:var(--brand2)}
+.ov-row .ov-r-acts{display:flex;gap:5px;flex-wrap:wrap}
+.ov-row .ov-r-acts .btn{padding:4px 8px;font-size:11px}
+
+/* 工资列表 */
+.ov-salary-list .ov-sal-row{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px;flex-wrap:wrap}
+.ov-sal-row .ov-sal-month{font-weight:800;font-size:14px;min-width:70px}
+.ov-sal-row .ov-sal-est{font-size:13px;color:var(--muted)}
+.ov-sal-row .ov-sal-est b{color:var(--ink)}
+.ov-sal-row .ov-sal-act{font-size:14px;font-weight:800;color:var(--brand)}
+.ov-sal-row .ov-sal-diff{font-size:13px;font-weight:700}
+.ov-sal-row .ov-sal-diff.pos{color:var(--brand2)}
+.ov-sal-row .ov-sal-diff.neg{color:var(--warn)}
+.ov-sal-row .ov-sal-note{font-size:12px;color:var(--muted);width:100%}
+.ov-sal-row .ov-sal-acts{display:flex;gap:5px;margin-left:auto}
+
+/* 设置 */
+.ov-set-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* 空状态 */
+.ov-empty{color:var(--muted);text-align:center;padding:24px;font-size:13px}
+
+@media (max-width:600px){
+  .ov-wrap{padding:12px 10px 70px}
+  .ov-title{font-size:15px}
+  .ov-actions .btn{padding:6px 9px;font-size:12px}
+  .ov-period-sel{width:100%}
+  .ov-filters{width:100%}
+  .ov-row{flex-direction:column;align-items:flex-start}
+  .ov-row .ov-r-pay{margin-left:0}
+  .grid-3.compact.ov-kpi{grid-template-columns:repeat(3,1fr);gap:8px}
+}

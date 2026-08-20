@@ -67,11 +67,11 @@
 
       <div class="rd-tabpane" id="tabOcr" style="display:none">
         <input type="file" id="ocrFile" accept="image/*" />
-        <p class="hint">上传含英文的图片，自动识别文字（首次需联网加载识别引擎，约几 MB）。识别后可在下方校对框修改错字。</p>
+        <p class="hint">上传含英文的图片，自动识别文字（首次需联网加载识别引擎，约几 MB）。识别后先进入「编辑预览」，可校对错字、调整分段后再进入精读阅读页。</p>
         <div id="ocrStatus" class="hint"></div>
         <textarea id="ocrResult" class="rd-textarea" placeholder="识别结果将显示在这里，可手动修改后导入…" style="display:none"></textarea>
         <div class="rd-import-actions" id="ocrActions" style="display:none">
-          <button class="btn primary" id="btnOcrImport">✓ 确认导入精读</button>
+          <button class="btn primary" id="btnOcrImport">✓ 进入编辑预览</button>
         </div>
       </div>
     </div>
@@ -96,11 +96,15 @@
       <div class="rd-reader-meta">
         <input type="text" id="artTitle" class="rd-title-input" placeholder="文章标题" />
       </div>
+      <div class="rd-mode-toggle">
+        <button class="btn sm mode-btn active" id="btnModeRead">📖 阅读</button>
+        <button class="btn sm mode-btn" id="btnModeEdit">✏️ 编辑</button>
+      </div>
       <button class="btn primary sm" id="btnSaveArticle">💾 保存</button>
     </div>
 
     <!-- 朗读控制条 -->
-    <div class="card rd-tts">
+    <div class="card rd-tts" id="ttsCard">
       <div class="rd-tts-row">
         <button class="btn primary sm" id="btnPlay">▶ 朗读</button>
         <button class="btn sm" id="btnStop">⏹ 停止</button>
@@ -115,11 +119,29 @@
             <option value="en-GB">英音</option>
           </select>
         </label>
+        <label class="rd-voice">音色
+          <select id="voiceSel" class="mini"></select>
+        </label>
+      </div>
+      <div class="rd-tts-engine hint" id="ttsEngine">🔊 引擎：Edge TTS 自然语音（自动回退内置朗读）</div>
+    </div>
+
+    <!-- 编辑模式卡片（校对 / 调整分段） -->
+    <div class="card rd-edit-card" id="editCard" style="display:none">
+      <div class="card-head">
+        <h3>✏️ 编辑原文（校对 / 调整分段）</h3>
+      </div>
+      <p class="hint">可增删、修改文字以修正 OCR 识别错误；按回车换行即产生新段落。点「📐 手动分段」可在光标处直接拆分段落。确认无误后点「保存并进入阅读」。</p>
+      <textarea id="editArea" class="rd-textarea" style="min-height:340px" placeholder="在此修改原文…"></textarea>
+      <div class="rd-edit-bar">
+        <button class="btn sm" id="btnSplitPara">📐 手动分段</button>
+        <button class="btn primary sm" id="btnSaveEdit">✓ 保存并进入阅读</button>
+        <button class="btn sm" id="btnCancelEdit">取消</button>
       </div>
     </div>
 
     <!-- 文章主体 -->
-    <div class="card rd-article-card">
+    <div class="card rd-article-card" id="articleCard">
       <div class="rd-article" id="article"></div>
       <div class="rd-anno-tip hint">提示：选中文中任意句子可「🖍 划线批注」；点击蓝色单词可查词。</div>
     </div>

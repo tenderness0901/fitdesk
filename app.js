@@ -550,6 +550,7 @@ function renderModule(m) {
 }
 function switchModule(m) {
   if (m === "reading") { window.location.href = "reading.html"; return; }
+  if (m === "overtime") { window.location.href = "overtime.html"; return; }
   currentModule = m;
   $$(".nav-item").forEach(x => x.classList.remove("active"));
   $$(".tab-item").forEach(x => x.classList.remove("active"));
