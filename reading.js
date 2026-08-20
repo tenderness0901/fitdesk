@@ -502,37 +502,121 @@ function readSelection() {
 }
 
 /* ============================================================
-   翻译（Google gtx 免费端点 + MyMemory 兜底）
+   翻译（多源回退：Google gtx / LibreTranslate 公开镜像 / MyMemory）
    ============================================================ */
+async function fetchWithTimeout(url, opts = {}, ms = 10000) {
+  const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  let t;
+  try {
+    if (ctrl) {
+      t = setTimeout(() => ctrl.abort(), ms);
+      opts = Object.assign({}, opts, { signal: ctrl.signal });
+    }
+    const r = await fetch(url, opts);
+    if (!r.ok) throw new Error("http " + r.status);
+    return r;
+  } finally {
+    if (t) clearTimeout(t);
+  }
+}
 async function gtranslate(text) {
-  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&q=" + encodeURIComponent(text) + "&sl=en&tl=zh-CN&dt=t";
-  const r = await fetch(url); if (!r.ok) throw new Error("http " + r.status);
+  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=" + encodeURIComponent(text);
+  const r = await fetchWithTimeout(url, {}, 8000);
   const j = await r.json();
-  return (j[0] || []).map(x => x[0]).join("");
+  if (!Array.isArray(j) || !j[0]) throw new Error("invalid response");
+  return j[0].map(x => x[0]).join("");
 }
-async function myMemory(text) {
+async function myMemoryTranslate(text) {
   const url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair=en|zh-CN";
-  const r = await fetch(url); const j = await r.json();
-  return (j.responseData && j.responseData.translatedText) || (j.responseData && j.responseData.translatedText) || "";
+  const r = await fetchWithTimeout(url, {}, 8000);
+  const j = await r.json();
+  if (j.quotaFinished) throw new Error("quota finished");
+  const txt = j.responseData && j.responseData.translatedText;
+  if (!txt || /^(\[|\{)?\s*$/.test(txt)) throw new Error("empty translation");
+  if (String(txt).toLowerCase() === String(text).toLowerCase() && /[\u4e00-\u9fa5]/.test(text) === false) {
+    // 英文返回原样，大概率没翻译成功，但不一定是失败，继续用
+  }
+  return txt;
 }
-async function translate(text) {
-  if (!text || !text.trim()) return "";
-  try { return await gtranslate(text); }
-  catch (e) { try { return await myMemory(text); } catch (e2) { return "（翻译服务暂不可用，请检查网络）"; } }
+async function libreTranslate(base, text) {
+  const r = await fetchWithTimeout(base.replace(/\/$/, "") + "/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ q: text, source: "en", target: "zh", format: "text" })
+  }, 12000);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  if (!j.translatedText) throw new Error("empty");
+  return j.translatedText;
 }
-function splitChunks(text, max = 4000) {
-  if (text.length <= max) return [text];
+
+const LIBRE_MIRRORS = [
+  "https://libretranslate.de",
+  "https://translate.terraprint.co",
+  "https://trans.zillyhuhn.com",
+  "https://libretranslate.eownerdead.dedyn.io",
+  "https://translate.fortytwo-it.com",
+  "https://translate.api.skitzen.com",
+  "https://lt.vern.cc"
+];
+
+const TRANSLATE_PROVIDERS = [
+  { name: "google", maxLen: 4000, fn: gtranslate },
+  ...LIBRE_MIRRORS.map(u => ({ name: "libre-" + u.replace(/^https:\/\//, "").split(".")[0], maxLen: 1500, fn: t => libreTranslate(u, t) })),
+  { name: "mymemory", maxLen: 500, fn: myMemoryTranslate }
+];
+
+function splitBySentences(text, maxLen = 4000) {
+  // 按句子切分再合并成不超过 maxLen 的块
+  const sents = text.split(/(?<=[.!?。！？]\s*)/).filter(s => s.trim());
   const chunks = []; let cur = "";
-  for (const p of text.split(/\n+/)) {
-    if ((cur + "\n" + p).length > max) { if (cur) chunks.push(cur); cur = p; }
-    else cur = cur ? cur + "\n" + p : p;
+  for (const s of sents) {
+    if ((cur + s).length > maxLen && cur) { chunks.push(cur); cur = s; }
+    else cur += s;
   }
   if (cur) chunks.push(cur);
-  return chunks;
+  return chunks.length ? chunks : (text ? [text] : []);
+}
+async function translateOneProvider(text, provider) {
+  if (text.length > provider.maxLen) throw new Error("chunk too long for " + provider.name);
+  return await provider.fn(text);
+}
+async function translateAny(text) {
+  if (!text || !text.trim()) return "";
+  let lastErr = "无可用翻译源";
+  for (const p of TRANSLATE_PROVIDERS) {
+    if (text.length > p.maxLen) continue;
+    try {
+      const res = await translateOneProvider(text, p);
+      if (res && res.trim()) return res.trim();
+    } catch (e) {
+      lastErr = p.name + ": " + (e.message || e);
+      console.warn("翻译源失败", p.name, e.message);
+    }
+  }
+  // 如果文本太长导致全部跳过，拆小后再试（主要是 MyMemory 只能 500 字符）
+  if (text.length > 500) {
+    const small = splitBySentences(text, 480);
+    const parts = [];
+    for (const c of small) {
+      parts.push(await translateAny(c));
+      await new Promise(r => setTimeout(r, 120));
+    }
+    return parts.filter(Boolean).join("\n");
+  }
+  throw new Error(lastErr);
+}
+async function translate(text) {
+  try { return await translateAny(text); }
+  catch (e) { console.warn("翻译失败", e); return "（翻译服务暂不可用，请检查网络）"; }
 }
 async function translateLong(text) {
-  const chunks = splitChunks(text); const out = [];
-  for (const c of chunks) out.push(await translate(c));
+  const chunks = splitBySentences(text, 1500); // 优先适配 LibreTranslate
+  const out = [];
+  for (const c of chunks) {
+    out.push(await translate(c));
+    await new Promise(r => setTimeout(r, 120));
+  }
   return out.join("\n");
 }
 
@@ -556,10 +640,12 @@ async function renderTranslationAndAI() {
   const summaryZh = await translateLong(CURRENT.raw);
   $("#trSummary").innerHTML = '<div class="t">📝 全文大意（意译）</div>' + escapeHtml(summaryZh);
 
-  const blocks = await Promise.all(CURRENT.paragraphs.map(async p => {
+  const blocks = [];
+  for (const p of CURRENT.paragraphs) {
     const zh = await translate(p);
-    return '<div class="rd-tr-block"><div class="rd-tr-en">' + escapeHtml(p) + '</div><div class="rd-tr-zh">' + escapeHtml(zh) + "</div></div>";
-  }));
+    blocks.push('<div class="rd-tr-block"><div class="rd-tr-en">' + escapeHtml(p) + '</div><div class="rd-tr-zh">' + escapeHtml(zh) + "</div></div>");
+    await new Promise(r => setTimeout(r, 120));
+  }
   $("#trPara").innerHTML = blocks.join("");
 
   const llm = SETTINGS.llm && SETTINGS.llm.base && SETTINGS.llm.key ? SETTINGS.llm : null;
@@ -572,12 +658,14 @@ async function renderTranslationAndAI() {
 
   const longs = longSentences();
   if (longs.length) {
-    const items = await Promise.all(longs.slice(0, 6).map(async s => {
+    const items = [];
+    for (const s of longs.slice(0, 6)) {
       const zh = await translate(s);
       const clauses = s.split(/[,;]|\s(?:and|but|because|although|which|that|who|when|while)\s/i).map(c => c.trim()).filter(Boolean);
       const clauseHtml = clauses.length > 1 ? '<ul style="margin:4px 0 0 18px;font-size:13px;color:#55636f">' + clauses.map(c => "<li>" + escapeHtml(c) + "</li>").join("") + "</ul>" : "";
-      return '<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body"><b>' + escapeHtml(s) + "</b>" + clauseHtml + "<div style='margin-top:6px;color:#33414f'>" + escapeHtml(zh) + "</div></div></div>";
-    }));
+      items.push('<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body"><b>' + escapeHtml(s) + "</b>" + clauseHtml + "<div style='margin-top:6px;color:#33414f'>" + escapeHtml(zh) + "</div></div></div>");
+      await new Promise(r => setTimeout(r, 80));
+    }
     ai += items.join("");
   } else {
     ai += '<div class="rd-ai-card"><h4>📐 长难句</h4><div class="ai-body">本文未检测到明显长难句，继续保持～</div></div>';
