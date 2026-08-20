@@ -26,6 +26,17 @@
 .ov-bd-row .ov-bd-bar{flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;min-width:40px}
 .ov-bd-row .ov-bd-bar-fill{height:100%;background:var(--brand);border-radius:3px;transition:width .3s}
 
+/* 月度统计头部 */
+.ov-month-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.ov-month-header span{font-size:16px;font-weight:800;color:var(--ink)}
+.ov-kpi-hint{font-size:11px;color:var(--muted);margin:-8px 0 12px}
+
+/* 薪资明细 */
+.ov-salary-detail{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.ov-salary-detail .sd-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:var(--ink)}
+.ov-salary-detail .sd-row.total{font-weight:800;color:var(--brand3);border-top:1px dashed var(--line);margin-top:4px;padding-top:8px}
+.ov-salary-detail .sd-row.deduct{color:var(--warn)}
+
 /* 月度表格 */
 .ov-monthly-table{margin-top:10px;overflow-x:auto}
 .ov-monthly-table table{width:100%;border-collapse:collapse;font-size:12px}
@@ -41,9 +52,16 @@
 .ov-form-actions{display:flex;gap:8px}
 .ov-readonly{background:var(--bg)!important;color:var(--muted)!important;font-weight:700}
 
+/* 补贴扣款 */
+.ov-adjust-form .ov-adjust-group{margin-bottom:14px}
+.ov-adjust-form h4{font-size:13px;color:var(--brand);margin-bottom:8px}
+.ov-adjust-form .row-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px}
+
 /* 台账列表 */
 .ov-filters{display:flex;gap:6px;flex-wrap:wrap}
 .ov-list .ov-row{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px;flex-wrap:wrap}
+.ov-list .ov-row.settled{opacity:.65;background:var(--bg)}
+.ov-list .ov-row.locked{border-left:3px solid var(--warn)}
 .ov-row .ov-r-date{font-weight:800;font-size:14px;min-width:88px}
 .ov-row .ov-r-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
 .ov-r-tag.weekday{background:var(--soft3);color:var(--brand3)}
@@ -88,4 +106,5 @@
   .ov-row{flex-direction:column;align-items:flex-start}
   .ov-row .ov-r-pay{margin-left:0}
   .grid-3.compact.ov-kpi{grid-template-columns:repeat(3,1fr);gap:8px}
+  .ov-adjust-form .row-3{grid-template-columns:repeat(2,1fr)}
 }

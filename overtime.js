@@ -1,7 +1,8 @@
 /* ============================================================
    加班 & 加班费台账 · overtime.js
    纯前端：localStorage 存储，零依赖
-   功能：全局设置 / 录入表单 / 台账列表 / 统计看板 / 工资实发对比 / 导出备份
+   功能：薪资设置 / 录入表单 / 台账列表 / 统计看板 / 补贴扣款 /
+         工资实发对比 / 月份锁定 / 导出备份
    ============================================================ */
 "use strict";
 
@@ -22,12 +23,15 @@ function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c
 const K_OT = "fitdesk:overtime:records";
 const K_SAL = "fitdesk:overtime:salaries";
 const K_SET = "fitdesk:overtime:settings";
+const K_ADJ = "fitdesk:overtime:adjusts";
+const K_LOCK = "fitdesk:overtime:lockedMonths";
 function loadJSON(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
 function saveJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { toast("保存失败：" + e.message); } }
 
 /* 默认设置 */
 const DEFAULT_SETTINGS = {
   baseSalary: 0,
+  otBaseSalary: 0, // 0 表示与基本工资相同
   workDays: 21.75,
   dailyHours: 8,
   multWeekday: 1.5,
@@ -35,15 +39,36 @@ const DEFAULT_SETTINGS = {
   multHoliday: 3,
   roundEnable: 0,
   minHours: 0.5,
-  roundRule: "half"
+  roundRule: "half",
+  taxThreshold: 5000,
+  socialInsurance: 0,
+  housingFund: 0
 };
 
 let SETTINGS = Object.assign({}, DEFAULT_SETTINGS, loadJSON(K_SET, {}));
 let RECORDS = loadJSON(K_OT, []);
 let SALARIES = loadJSON(K_SAL, []);
+let ADJUSTS = loadJSON(K_ADJ, []);
+let LOCKED = loadJSON(K_LOCK, []);
 
 /* 编辑状态 */
 let EDITING_ID = null;
+
+/* 补贴/扣款字段列表 */
+const ALLOWANCE_KEYS = ["mealAllowance", "trafficAllowance", "fullAttendance", "housingAllowance", "otherAllowance"];
+const DEDUCTION_KEYS = ["socialInsurance", "housingFund", "estimatedTax", "otherDeduction"];
+const ADJ_LABELS = {
+  mealAllowance: "餐补", trafficAllowance: "交通补贴", fullAttendance: "全勤",
+  housingAllowance: "住房补贴", otherAllowance: "其他补贴",
+  socialInsurance: "社保个人", housingFund: "公积金个人",
+  estimatedTax: "预估个税", otherDeduction: "其他扣款"
+};
+const ADJ_ID_MAP = {
+  mealAllowance: "adjMeal", trafficAllowance: "adjTraffic", fullAttendance: "adjFull",
+  housingAllowance: "adjHousingAllow", otherAllowance: "adjOtherAllow",
+  socialInsurance: "adjSocial", housingFund: "adjFund",
+  estimatedTax: "adjTax", otherDeduction: "adjOtherDeduc"
+};
 
 /* ---------------- 类型映射 ---------------- */
 const TYPE_MAP = {
@@ -57,9 +82,11 @@ const TYPE_MAP = {
 /* ============================================================
    核心计算
    ============================================================ */
+function otBase() { return SETTINGS.otBaseSalary > 0 ? SETTINGS.otBaseSalary : (SETTINGS.baseSalary || 0); }
 function hourlyRate() {
-  if (!SETTINGS.baseSalary || !SETTINGS.workDays || !SETTINGS.dailyHours) return 0;
-  return SETTINGS.baseSalary / SETTINGS.workDays / SETTINGS.dailyHours;
+  const base = otBase();
+  if (!base || !SETTINGS.workDays || !SETTINGS.dailyHours) return 0;
+  return base / SETTINGS.workDays / SETTINGS.dailyHours;
 }
 
 function applyRounding(hours) {
@@ -83,14 +110,47 @@ function calcPay(type, hours, manualPay) {
   return Math.round(rate * t.mult() * rounded * 100) / 100;
 }
 
-/* 时间差 → 小时 */
+/* 时间差 → 小时（支持跨天） */
 function timeDiff(start, end) {
   if (!start || !end) return 0;
   const [sh, sm] = start.split(":").map(Number);
   const [eh, em] = end.split(":").map(Number);
   let diff = (eh * 60 + em) - (sh * 60 + sm);
-  if (diff <= 0) diff += 24 * 60; // 跨日
-  return Math.round(diff / 60 * 100) / 100; // 保留 2 位
+  if (diff <= 0) diff += 24 * 60;
+  return Math.round(diff / 60 * 100) / 100;
+}
+
+/* ============================================================
+   补贴扣款
+   ============================================================ */
+function getAdjust(year, month) {
+  const prefix = year + "-" + month;
+  let a = ADJUSTS.find(x => x.month === prefix);
+  if (!a) {
+    a = { month: prefix };
+    ALLOWANCE_KEYS.concat(DEDUCTION_KEYS).forEach(k => a[k] = 0);
+  }
+  return a;
+}
+function saveAdjust(a) {
+  const idx = ADJUSTS.findIndex(x => x.month === a.month);
+  if (idx >= 0) ADJUSTS[idx] = a;
+  else ADJUSTS.push(a);
+  saveJSON(K_ADJ, ADJUSTS);
+}
+function sumAllowance(a) { return ALLOWANCE_KEYS.reduce((s, k) => s + (parseFloat(a[k]) || 0), 0); }
+function sumDeduction(a) { return DEDUCTION_KEYS.reduce((s, k) => s + (parseFloat(a[k]) || 0), 0); }
+
+/* ============================================================
+   月份锁定
+   ============================================================ */
+function isMonthLocked(year, month) { return LOCKED.includes(year + "-" + month); }
+function toggleLockMonth(year, month) {
+  const key = year + "-" + month;
+  const idx = LOCKED.indexOf(key);
+  if (idx >= 0) LOCKED.splice(idx, 1);
+  else LOCKED.push(key);
+  saveJSON(K_LOCK, LOCKED);
 }
 
 /* ============================================================
@@ -102,6 +162,7 @@ function updateHourlyRateDisplay() {
 
 function openSettings() {
   $("#setBaseSalary").value = SETTINGS.baseSalary || "";
+  $("#setOtBaseSalary").value = SETTINGS.otBaseSalary || "";
   $("#setWorkDays").value = SETTINGS.workDays;
   $("#setDailyHours").value = SETTINGS.dailyHours;
   $("#setMultWeekday").value = SETTINGS.multWeekday;
@@ -110,6 +171,9 @@ function openSettings() {
   $("#setRoundEnable").value = String(SETTINGS.roundEnable);
   $("#setMinHours").value = SETTINGS.minHours;
   $("#setRoundRule").value = SETTINGS.roundRule;
+  $("#setTaxThreshold").value = SETTINGS.taxThreshold;
+  $("#setSocial").value = SETTINGS.socialInsurance || "";
+  $("#setFund").value = SETTINGS.housingFund || "";
   updateHourlyRateDisplay();
   $("#settingsStatus").textContent = "";
   openModal("#settingsModal");
@@ -117,6 +181,7 @@ function openSettings() {
 
 function saveSettings() {
   SETTINGS.baseSalary = parseFloat($("#setBaseSalary").value) || 0;
+  SETTINGS.otBaseSalary = parseFloat($("#setOtBaseSalary").value) || 0;
   SETTINGS.workDays = parseFloat($("#setWorkDays").value) || 21.75;
   SETTINGS.dailyHours = parseFloat($("#setDailyHours").value) || 8;
   SETTINGS.multWeekday = parseFloat($("#setMultWeekday").value) || 1.5;
@@ -125,6 +190,9 @@ function saveSettings() {
   SETTINGS.roundEnable = parseInt($("#setRoundEnable").value) || 0;
   SETTINGS.minHours = parseFloat($("#setMinHours").value) || 0;
   SETTINGS.roundRule = $("#setRoundRule").value || "half";
+  SETTINGS.taxThreshold = parseFloat($("#setTaxThreshold").value) || 5000;
+  SETTINGS.socialInsurance = parseFloat($("#setSocial").value) || 0;
+  SETTINGS.housingFund = parseFloat($("#setFund").value) || 0;
   saveJSON(K_SET, SETTINGS);
   updateHourlyRateDisplay();
   $("#settingsStatus").textContent = "✅ 设置已保存";
@@ -159,7 +227,7 @@ function updateCalcPreview() {
   if (!t) { $("#calcPreview").innerHTML = ""; return; }
   const rate = hourlyRate();
   if (!rate && t.paid) {
-    $("#calcPreview").innerHTML = "⚠️ 请先在设置中填写月基本工资，否则加班费为 ¥0";
+    $("#calcPreview").innerHTML = "⚠️ 请先在设置中填写工资基数，否则加班费为 ¥0";
     return;
   }
   const pay = calcPay(type, hours, null);
@@ -200,18 +268,31 @@ function toggleFormMode() {
   updateCalcPreview();
 }
 
+function checkMonthLocked(date) {
+  const ym = date.slice(0, 7);
+  if (isMonthLocked(ym.slice(0, 4), ym.slice(5, 7))) {
+    toast("月份 " + ym + " 已锁定，请先解锁后再操作");
+    return true;
+  }
+  return false;
+}
+
 function addRecord() {
   const date = $("#otDate").value;
   if (!date) { toast("请选择加班日期"); return; }
+  if (checkMonthLocked(date)) return;
   const type = $("#otType").value;
   const hours = getFormHours();
   if (hours <= 0) { toast("加班时长必须大于 0"); return; }
   if (hours > 24) { toast("单次加班时长不能超过 24 小时"); return; }
   const note = $("#otNote").value.trim();
   const pay = calcPay(type, hours, null);
+  const mode = $("#otMode").value;
 
   const rec = {
     id: uid(), date, type, hours: Math.round(hours * 100) / 100,
+    startTime: mode === "time" ? $("#otStart").value : "",
+    endTime: mode === "time" ? $("#otEnd").value : "",
     note, pay: Math.round(pay * 100) / 100,
     status: "pending", createdAt: new Date().toISOString()
   };
@@ -225,11 +306,18 @@ function addRecord() {
 function startEdit(id) {
   const rec = RECORDS.find(r => r.id === id);
   if (!rec) return;
+  if (checkMonthLocked(rec.date)) return;
   EDITING_ID = id;
   $("#otDate").value = rec.date;
   $("#otType").value = rec.type;
-  $("#otMode").value = "hours";
-  $("#otHours").value = rec.hours;
+  if (rec.startTime && rec.endTime) {
+    $("#otMode").value = "time";
+    $("#otStart").value = rec.startTime;
+    $("#otEnd").value = rec.endTime;
+  } else {
+    $("#otMode").value = "hours";
+    $("#otHours").value = rec.hours;
+  }
   $("#otNote").value = rec.note || "";
   $("#formTitle").textContent = "✏️ 编辑加班记录";
   $("#btnAddOt").style.display = "none";
@@ -246,16 +334,20 @@ function saveEdit() {
   if (!rec) return;
   const date = $("#otDate").value;
   if (!date) { toast("请选择加班日期"); return; }
+  if (checkMonthLocked(date)) return;
   const type = $("#otType").value;
   const hours = getFormHours();
   if (hours <= 0) { toast("加班时长必须大于 0"); return; }
   if (hours > 24) { toast("单次加班时长不能超过 24 小时"); return; }
+  const mode = $("#otMode").value;
   rec.date = date;
   rec.type = type;
   rec.hours = Math.round(hours * 100) / 100;
+  rec.startTime = mode === "time" ? $("#otStart").value : "";
+  rec.endTime = mode === "time" ? $("#otEnd").value : "";
   rec.note = $("#otNote").value.trim();
-  // 如果之前没有手动改过金额，就重新算；否则保留
-  rec.pay = calcPay(type, hours, null);
+  // 若之前手动修改过金额，编辑时保留手动金额；否则重新计算
+  if (!rec.manualPay) rec.pay = calcPay(type, hours, null);
   saveJSON(K_OT, RECORDS);
   clearForm();
   renderAll();
@@ -263,6 +355,9 @@ function saveEdit() {
 }
 
 function deleteRecord(id) {
+  const rec = RECORDS.find(r => r.id === id);
+  if (!rec) return;
+  if (checkMonthLocked(rec.date)) return;
   if (!confirm("确定删除这条加班记录？")) return;
   RECORDS = RECORDS.filter(r => r.id !== id);
   saveJSON(K_OT, RECORDS);
@@ -273,6 +368,7 @@ function deleteRecord(id) {
 function toggleStatus(id) {
   const rec = RECORDS.find(r => r.id === id);
   if (!rec) return;
+  if (checkMonthLocked(rec.date)) return;
   rec.status = rec.status === "pending" ? "settled" : "pending";
   saveJSON(K_OT, RECORDS);
   renderList();
@@ -281,6 +377,7 @@ function toggleStatus(id) {
 function editPay(id) {
   const rec = RECORDS.find(r => r.id === id);
   if (!rec) return;
+  if (checkMonthLocked(rec.date)) return;
   const v = prompt("修改本条加班费金额（元）：", rec.pay || 0);
   if (v === null) return;
   const pay = parseFloat(v);
@@ -299,10 +396,12 @@ function getFilteredRecords() {
   let list = RECORDS.slice();
   const fm = $("#filterMonth").value;
   const ft = $("#filterType").value;
-  const fs = ($("#filterSearch").value || "").toLowerCase();
+  const fs = $("#filterStatus").value;
+  const fk = ($("#filterSearch").value || "").toLowerCase();
   if (fm) list = list.filter(r => r.date.slice(0, 7) === fm);
   if (ft) list = list.filter(r => r.type === ft);
-  if (fs) list = list.filter(r => (r.note || "").toLowerCase().includes(fs));
+  if (fs) list = list.filter(r => r.status === fs);
+  if (fk) list = list.filter(r => (r.note || "").toLowerCase().includes(fk));
   return list.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
 }
 
@@ -312,22 +411,26 @@ function renderList() {
   if (!list.length) { box.innerHTML = '<div class="ov-empty">暂无加班记录，在上方添加第一条吧～</div>'; return; }
   box.innerHTML = list.map(r => {
     const t = TYPE_MAP[r.type] || { label: r.type, tag: "free", paid: false };
+    const settled = r.status === "settled";
+    const locked = isMonthLocked(r.date.slice(0, 4), r.date.slice(5, 7));
+    const rowCls = "ov-row" + (settled ? " settled" : "") + (locked ? " locked" : "");
     const payHtml = t.paid
       ? '<span class="ov-r-pay">¥' + (r.pay || 0).toFixed(2) + '</span>'
       : '<span class="ov-r-pay unpaid">不计费</span>';
     const statusHtml = t.paid
-      ? '<span class="ov-r-status ' + r.status + '">' + (r.status === "settled" ? "已结算" : "待结算") + "</span>"
+      ? '<span class="ov-r-status ' + r.status + '">' + (settled ? "已结算" : "待结算") + "</span>"
       : "";
-    return '<div class="ov-row">' +
-      '<span class="ov-r-date">' + escapeHtml(r.date) + "</span>" +
+    const timeInfo = r.startTime && r.endTime ? ' ' + r.startTime + '-' + r.endTime : '';
+    return '<div class="' + rowCls + '">' +
+      '<span class="ov-r-date">' + escapeHtml(r.date) + (locked ? ' 🔒' : '') + "</span>" +
       '<span class="ov-r-tag ' + t.tag + '">' + escapeHtml(t.label) + "</span>" +
-      '<span class="ov-r-hours">' + r.hours + "h</span>" +
+      '<span class="ov-r-hours">' + r.hours + "h" + timeInfo + "</span>" +
       payHtml + statusHtml +
       (r.note ? '<div class="ov-r-note">' + escapeHtml(r.note) + "</div>" : "") +
       '<div class="ov-r-acts">' +
       '<button class="btn sm" data-act="edit" data-id="' + r.id + '">编辑</button>' +
       (t.paid ? '<button class="btn sm" data-act="pay" data-id="' + r.id + '">改金额</button>' : "") +
-      (t.paid ? '<button class="btn sm" data-act="status" data-id="' + r.id + '">' + (r.status === "settled" ? "↺ 待结算" : "✓ 已结算") + "</button>" : "") +
+      (t.paid ? '<button class="btn sm" data-act="status" data-id="' + r.id + '">' + (settled ? "↺ 待结算" : "✓ 已结算") + "</button>" : "") +
       '<button class="btn sm danger" data-act="del" data-id="' + r.id + '">删</button>' +
       "</div></div>";
   }).join("");
@@ -346,42 +449,63 @@ function renderStatPeriodSel() {
   $("#statMonth").innerHTML = mHtml;
 }
 
+/* 月度工资核算：基本工资 + 补贴 + 加班费 = 应发；应发 - 扣款 = 预估实发 */
+function calcMonthSalary(year, month) {
+  const prefix = year + "-" + month;
+  const recs = RECORDS.filter(r => r.date.slice(0, 7) === prefix);
+  let otHours = 0, otPay = 0, compoffHours = 0, freeHours = 0;
+  for (const r of recs) {
+    const t = TYPE_MAP[r.type]; if (!t) continue;
+    if (t.paid) { otHours += r.hours; otPay += r.pay || 0; }
+    else if (r.type === "compoff") compoffHours += r.hours;
+    else if (r.type === "free") freeHours += r.hours;
+  }
+  const baseSalary = SETTINGS.baseSalary || 0;
+  const adj = getAdjust(year, month);
+  const allowance = sumAllowance(adj);
+  const deduction = sumDeduction(adj);
+  const gross = baseSalary + allowance + otPay;
+  const net = gross - deduction;
+  return { baseSalary, allowance, otPay, gross, deduction, net, otHours, compoffHours, freeHours };
+}
+
 function renderMonthStats() {
   const y = $("#statYear").value;
   const m = $("#statMonth").value;
   const prefix = y + "-" + m;
-  const recs = RECORDS.filter(r => r.date.slice(0, 7) === prefix);
+  $("#monthLabel").textContent = prefix;
+  const locked = isMonthLocked(y, m);
+  $("#btnLockMonth").textContent = locked ? "🔓 解锁当月" : "🔒 锁定当月";
 
-  // 按类型汇总
+  const s = calcMonthSalary(y, m);
+
+  // KPI
+  const kpi = [
+    { v: s.otHours.toFixed(1) + "h", l: "加班总时长", sub: "（计费）" },
+    { v: "¥" + s.gross.toFixed(0), l: "应发合计", sub: "工资+补贴+加班" },
+    { v: "¥" + s.net.toFixed(0), l: "预估实发工资", sub: "扣除五险一金/个税" }
+  ];
+  $("#monthKpi").innerHTML = kpi.map(item => '<div class="ov-stat"><div class="rs-v">' + item.v + '</div><div class="rs-l">' + item.l + '</div><div class="rs-sub">' + (item.sub || "") + "</div></div>").join("");
+
+  // 分类明细
   const byType = {};
   for (const t of Object.keys(TYPE_MAP)) byType[t] = { hours: 0, pay: 0, count: 0 };
-  let totalHours = 0, totalPay = 0;
-  let compoffHours = 0, freeHours = 0;
-
-  for (const r of recs) {
+  for (const r of RECORDS.filter(x => x.date.slice(0, 7) === prefix)) {
     const t = TYPE_MAP[r.type]; if (!t) continue;
     byType[r.type].hours += r.hours;
     byType[r.type].pay += r.pay || 0;
     byType[r.type].count++;
-    if (t.paid) { totalHours += r.hours; totalPay += r.pay || 0; }
-    else if (r.type === "compoff") compoffHours += r.hours;
-    else if (r.type === "free") freeHours += r.hours;
   }
-
-  const baseSalary = SETTINGS.baseSalary || 0;
-  const estTotal = baseSalary + totalPay;
-
-  // KPI
-  const kpi = [
-    { v: totalHours.toFixed(1) + "h", l: "加班总时长", sub: "（计费）" },
-    { v: "¥" + totalPay.toFixed(0), l: "加班费合计", sub: "（预估）" },
-    { v: "¥" + estTotal.toFixed(0), l: "当月预估应发", sub: "基本工资+加班费" }
-  ];
-  $("#monthKpi").innerHTML = kpi.map(s => '<div class="ov-stat"><div class="rs-v">' + s.v + '</div><div class="rs-l">' + s.l + '</div><div class="rs-sub">' + (s.sub || "") + "</div></div>").join("");
-
-  // 分类明细
   const maxHours = Math.max(1, ...Object.values(byType).map(v => v.hours));
-  let bdHtml = "";
+  let bdHtml = '<div class="ov-salary-detail">' +
+    '<div class="sd-row"><span>基本工资</span><span>¥' + s.baseSalary.toFixed(2) + "</span></div>" +
+    '<div class="sd-row"><span>补贴合计</span><span>¥' + s.allowance.toFixed(2) + "</span></div>" +
+    '<div class="sd-row"><span>加班费合计</span><span>¥' + s.otPay.toFixed(2) + "</span></div>" +
+    '<div class="sd-row total"><span>应发合计</span><span>¥' + s.gross.toFixed(2) + "</span></div>" +
+    '<div class="sd-row deduct"><span>扣减合计（社保/公积金/个税/其他）</span><span>-¥' + s.deduction.toFixed(2) + "</span></div>" +
+    '<div class="sd-row total"><span>预估实发工资</span><span>¥' + s.net.toFixed(2) + "</span></div>" +
+    "</div>";
+
   for (const [key, t] of Object.entries(TYPE_MAP)) {
     const v = byType[key];
     if (v.count === 0) continue;
@@ -393,60 +517,58 @@ function renderMonthStats() {
       '<div class="ov-bd-bar"><div class="ov-bd-bar-fill" style="width:' + pct + '%"></div></div>' +
       '<span class="ov-bd-pay">' + payStr + "</span></div>";
   }
-  if (compoffHours || freeHours) {
+  if (s.compoffHours || s.freeHours) {
     bdHtml += '<div class="ov-bd-row" style="background:var(--bg)">' +
-      '<span class="ov-bd-hours" style="min-width:90px">调休：' + compoffHours.toFixed(1) + "h</span>" +
-      '<span class="ov-bd-hours">无偿：' + freeHours.toFixed(1) + "h</span>" +
+      '<span class="ov-bd-hours" style="min-width:90px">调休：' + s.compoffHours.toFixed(1) + "h</span>" +
+      '<span class="ov-bd-hours">无偿：' + s.freeHours.toFixed(1) + "h</span>" +
       '<span class="ov-bd-pay" style="color:var(--muted)">不计加班费</span></div>';
   }
-  if (!bdHtml) bdHtml = '<div class="ov-empty">当月无加班记录</div>';
   $("#monthBreakdown").innerHTML = bdHtml;
 }
 
 function renderYearStats() {
   const y = $("#statYear").value;
-  const recs = RECORDS.filter(r => r.date.slice(0, 4) === y);
-
-  let totalHours = 0, totalPay = 0;
-  let compoffHours = 0, freeHours = 0;
+  let totalBase = 0, totalAllowance = 0, totalOtPay = 0, totalDeduction = 0, totalNet = 0;
+  let totalHours = 0, compoffHours = 0, freeHours = 0;
   const monthly = [];
   for (let m = 1; m <= 12; m++) {
-    const mp = y + "-" + pad2(m);
-    const mr = recs.filter(r => r.date.slice(0, 7) === mp);
-    let mh = 0, mp2 = 0, ch = 0, fh = 0;
-    for (const r of mr) {
-      const t = TYPE_MAP[r.type]; if (!t) continue;
-      if (t.paid) { mh += r.hours; mp2 += r.pay || 0; }
-      else if (r.type === "compoff") ch += r.hours;
-      else if (r.type === "free") fh += r.hours;
-    }
-    monthly.push({ m, hours: mh, pay: mp2, compoff: ch, free: fh });
-    totalHours += mh; totalPay += mp2;
-    compoffHours += ch; freeHours += fh;
+    const s = calcMonthSalary(y, pad2(m));
+    monthly.push({ m, ...s });
+    totalBase += s.baseSalary;
+    totalAllowance += s.allowance;
+    totalOtPay += s.otPay;
+    totalDeduction += s.deduction;
+    totalNet += s.net;
+    totalHours += s.otHours;
+    compoffHours += s.compoffHours;
+    freeHours += s.freeHours;
   }
 
   const kpi = [
-    { v: totalHours.toFixed(1) + "h", l: "全年加班时长", sub: "（计费）" },
-    { v: "¥" + totalPay.toFixed(0), l: "全年加班费", sub: "（预估）" },
-    { v: (compoffHours + freeHours).toFixed(0) + "h", l: "调休+无偿", sub: compoffHours.toFixed(0) + "h / " + freeHours.toFixed(0) + "h" }
+    { v: "¥" + totalBase.toFixed(0), l: "全年基本工资", sub: "" },
+    { v: "¥" + totalAllowance.toFixed(0), l: "全年补贴", sub: "" },
+    { v: "¥" + totalOtPay.toFixed(0), l: "全年加班费", sub: totalHours.toFixed(1) + "h" }
   ];
   $("#yearKpi").innerHTML = kpi.map(s => '<div class="ov-stat"><div class="rs-v">' + s.v + '</div><div class="rs-l">' + s.l + '</div><div class="rs-sub">' + (s.sub || "") + "</div></div>").join("");
 
-  // 月度表格
   let rows = "";
   for (const mo of monthly) {
-    if (mo.hours === 0 && mo.compoff === 0 && mo.free === 0) continue;
+    if (mo.otHours === 0 && mo.compoffHours === 0 && mo.freeHours === 0 && mo.allowance === 0 && mo.deduction === 0) continue;
     rows += "<tr><td class='mt-month'>" + mo.m + " 月</td>" +
-      "<td>" + mo.hours.toFixed(1) + "h</td>" +
-      "<td>" + mo.compoff.toFixed(1) + "h</td>" +
-      "<td>" + mo.free.toFixed(1) + "h</td>" +
-      "<td class='mt-pay'>¥" + mo.pay.toFixed(2) + "</td></tr>";
+      "<td>" + mo.baseSalary.toFixed(0) + "</td>" +
+      "<td>" + mo.allowance.toFixed(0) + "</td>" +
+      "<td>" + mo.otPay.toFixed(0) + "</td>" +
+      "<td>" + mo.gross.toFixed(0) + "</td>" +
+      "<td>" + mo.deduction.toFixed(0) + "</td>" +
+      "<td class='mt-pay'>" + mo.net.toFixed(0) + "</td></tr>";
   }
-  if (!rows) rows = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">全年无加班记录</td></tr>';
-  rows += '<tr class="mt-total"><td>合计</td><td>' + totalHours.toFixed(1) + "h</td>" +
-    "<td>" + compoffHours.toFixed(1) + "h</td><td>" + freeHours.toFixed(1) + "h</td>" +
-    '<td class="mt-pay">¥' + totalPay.toFixed(2) + "</td></tr>";
-  $("#yearMonthlyTable").innerHTML = '<table><thead><tr><th>月份</th><th>计费时长</th><th>调休</th><th>无偿</th><th>加班费</th></tr></thead><tbody>' + rows + "</tbody></table>";
+  if (!rows) rows = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">全年无记录</td></tr>';
+  rows += '<tr class="mt-total"><td>合计</td><td>' + totalBase.toFixed(0) + "</td>" +
+    "<td>" + totalAllowance.toFixed(0) + "</td><td>" + totalOtPay.toFixed(0) + "</td>" +
+    "<td>" + (totalBase + totalAllowance + totalOtPay).toFixed(0) + "</td>" +
+    "<td>" + totalDeduction.toFixed(0) + "</td>" +
+    '<td class="mt-pay">' + totalNet.toFixed(0) + "</td></tr>";
+  $("#yearMonthlyTable").innerHTML = '<table><thead><tr><th>月份</th><th>基本工资</th><th>补贴</th><th>加班费</th><th>应发</th><th>扣减</th><th>预估实发</th></tr></thead><tbody>' + rows + "</tbody></table>";
 }
 
 function showStatView(view) {
@@ -457,11 +579,38 @@ function showStatView(view) {
 }
 
 /* ============================================================
+   补贴扣款 UI
+   ============================================================ */
+function renderAdjustInputs() {
+  const y = $("#statYear").value;
+  const m = $("#statMonth").value;
+  $("#adjustMonthLabel").textContent = y + "-" + m;
+  const a = getAdjust(y, m);
+  ALLOWANCE_KEYS.concat(DEDUCTION_KEYS).forEach(k => {
+    const el = $("#" + ADJ_ID_MAP[k]);
+    if (el) el.value = a[k] || "";
+  });
+}
+
+function saveAdjustForm() {
+  const y = $("#statYear").value;
+  const m = $("#statMonth").value;
+  const a = getAdjust(y, m);
+  ALLOWANCE_KEYS.concat(DEDUCTION_KEYS).forEach(k => {
+    const el = $("#" + ADJ_ID_MAP[k]);
+    if (el) a[k] = parseFloat(el.value) || 0;
+  });
+  saveAdjust(a);
+  renderAll();
+  toast("当月补贴扣款已保存 ✓");
+}
+
+/* ============================================================
    工资实发对比
    ============================================================ */
 function renderSalaryList() {
   const box = $("#salaryList");
-  if (!SALARIES.length) { box.innerHTML = '<div class="ov-empty">暂无工资录入记录。点击「录入工资」开始记录每月实发。</div>'; return; }
+  if (!SALARIES.length) { box.innerHTML = '<div class="ov-empty">暂无工资录入记录。点击「录入实发工资」开始记录每月实发。</div>'; return; }
   const list = SALARIES.slice().sort((a, b) => (b.year + b.month).localeCompare(a.year + a.month));
   box.innerHTML = list.map(s => {
     const est = estimateMonthPay(s.year, s.month);
@@ -482,11 +631,8 @@ function renderSalaryList() {
 }
 
 function estimateMonthPay(year, month) {
-  const prefix = year + "-" + month;
-  const recs = RECORDS.filter(r => r.date.slice(0, 7) === prefix);
-  let pay = 0;
-  for (const r of recs) { const t = TYPE_MAP[r.type]; if (t && t.paid) pay += r.pay || 0; }
-  return (SETTINGS.baseSalary || 0) + pay;
+  const s = calcMonthSalary(year, month);
+  return s.net;
 }
 
 function openSalaryModal(id) {
@@ -505,7 +651,7 @@ function openSalaryModal(id) {
       $("#salMonth").value = s.month;
       $("#salActual").value = s.actual;
       $("#salDiffNote").value = s.diffNote || "";
-      $("#salaryModalTitle").textContent = "✏️ 编辑工资";
+      $("#salaryModalTitle").textContent = "✏️ 编辑工资实发";
       $("#btnSaveSalary").dataset.editId = id;
     }
   } else {
@@ -525,7 +671,7 @@ function updateSalPreview() {
   const act = parseFloat($("#salActual").value) || 0;
   const diff = act - est;
   const diffStr = diff >= 0 ? "+" + diff.toFixed(2) : diff.toFixed(2);
-  $("#salPreview").innerHTML = "预估应发：¥" + est.toFixed(2) + "　→　差额：" + diffStr;
+  $("#salPreview").innerHTML = "预估实发：¥" + est.toFixed(2) + "　→　差额：" + diffStr;
 }
 
 function saveSalary() {
@@ -540,7 +686,6 @@ function saveSalary() {
     const s = SALARIES.find(x => x.id === editId);
     if (s) { s.year = year; s.month = month; s.actual = actual; s.diffNote = diffNote; }
   } else {
-    // 同年月去重
     const exist = SALARIES.find(s => s.year === year && s.month === month);
     if (exist) {
       exist.actual = actual; exist.diffNote = diffNote;
@@ -570,11 +715,14 @@ function exportData() {
   lines.push("===== 加班台账导出 =====");
   lines.push("导出时间：" + new Date().toLocaleString("zh-CN"));
   lines.push("");
-  lines.push("【全局设置】");
+  lines.push("【薪资设置】");
   lines.push("月基本工资：¥" + (SETTINGS.baseSalary || 0));
+  lines.push("加班核算基数：¥" + otBase().toFixed(2) + (SETTINGS.otBaseSalary > 0 ? "（与基本工资不同）" : "（同基本工资）"));
   lines.push("计薪天数：" + SETTINGS.workDays + " 天");
   lines.push("每日工时：" + SETTINGS.dailyHours + " 小时");
   lines.push("基础时薪：¥" + hourlyRate().toFixed(2) + "/小时");
+  lines.push("个税起征点：¥" + SETTINGS.taxThreshold);
+  lines.push("社保个人：¥" + SETTINGS.socialInsurance + " / 公积金个人：¥" + SETTINGS.housingFund);
   lines.push("倍率：工作日" + SETTINGS.multWeekday + " / 休息日" + SETTINGS.multRestday + " / 节假日" + SETTINGS.multHoliday);
   lines.push("");
 
@@ -584,7 +732,18 @@ function exportData() {
     const t = TYPE_MAP[r.type] || { label: r.type, paid: false };
     const payStr = t.paid ? "¥" + (r.pay || 0).toFixed(2) : "不计费";
     const stStr = t.paid ? " [" + (r.status === "settled" ? "已结算" : "待结算") + "]" : "";
-    lines.push(r.date + " | " + t.label + " | " + r.hours + "h | " + payStr + stStr + (r.note ? " | " + r.note : ""));
+    const timeStr = r.startTime && r.endTime ? " " + r.startTime + "-" + r.endTime : "";
+    lines.push(r.date + " | " + t.label + " | " + r.hours + "h" + timeStr + " | " + payStr + stStr + (r.note ? " | " + r.note : ""));
+  }
+  lines.push("");
+
+  lines.push("【月度补贴扣款】");
+  const adjSorted = ADJUSTS.slice().sort((a, b) => b.month.localeCompare(a.month));
+  for (const a of adjSorted) {
+    const items = [];
+    ALLOWANCE_KEYS.forEach(k => { if (a[k]) items.push(ADJ_LABELS[k] + " ¥" + a[k]); });
+    DEDUCTION_KEYS.forEach(k => { if (a[k]) items.push(ADJ_LABELS[k] + " -¥" + a[k]); });
+    lines.push(a.month + " | " + (items.length ? items.join(" / ") : "无"));
   }
   lines.push("");
 
@@ -606,7 +765,7 @@ function exportData() {
 }
 
 function exportJSON() {
-  const data = { settings: SETTINGS, records: RECORDS, salaries: SALARIES, exportedAt: new Date().toISOString() };
+  const data = { settings: SETTINGS, records: RECORDS, salaries: SALARIES, adjusts: ADJUSTS, locked: LOCKED, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -619,7 +778,6 @@ function exportJSON() {
    筛选器
    ============================================================ */
 function populateMonthFilters() {
-  // 台账筛选的月份下拉
   const months = [...new Set(RECORDS.map(r => r.date.slice(0, 7)))].sort().reverse();
   const cur = $("#filterMonth").value;
   $("#filterMonth").innerHTML = '<option value="">全部月份</option>' +
@@ -641,6 +799,7 @@ function renderAll() {
   renderList();
   renderMonthStats();
   renderSalaryList();
+  renderAdjustInputs();
 }
 
 /* ============================================================
@@ -651,7 +810,7 @@ function bind() {
   $("#btnOvSettings").addEventListener("click", openSettings);
   $("#btnSaveSettings").addEventListener("click", saveSettings);
   $("#btnResetSettings").addEventListener("click", resetSettings);
-  ["#setBaseSalary", "#setWorkDays", "#setDailyHours"].forEach(s => {
+  ["#setBaseSalary", "#setOtBaseSalary", "#setWorkDays", "#setDailyHours"].forEach(s => {
     $(s).addEventListener("input", updateHourlyRateDisplay);
   });
 
@@ -680,16 +839,34 @@ function bind() {
   // 筛选
   $("#filterMonth").addEventListener("change", renderList);
   $("#filterType").addEventListener("change", renderList);
+  $("#filterStatus").addEventListener("change", renderList);
   $("#filterSearch").addEventListener("input", renderList);
 
   // 统计
   $("#btnStatMonth").addEventListener("click", () => showStatView("month"));
   $("#btnStatYear").addEventListener("click", () => showStatView("year"));
   $("#statYear").addEventListener("change", () => {
+    renderAdjustInputs();
     if ($("#statMonthView").style.display !== "none") renderMonthStats();
     else renderYearStats();
   });
-  $("#statMonth").addEventListener("change", renderMonthStats);
+  $("#statMonth").addEventListener("change", () => {
+    renderAdjustInputs();
+    renderMonthStats();
+  });
+  $("#btnLockMonth").addEventListener("click", () => {
+    toggleLockMonth($("#statYear").value, $("#statMonth").value);
+    renderMonthStats();
+    renderList();
+    toast(isMonthLocked($("#statYear").value, $("#statMonth").value) ? "月份已锁定" : "月份已解锁");
+  });
+
+  // 补贴扣款
+  ALLOWANCE_KEYS.concat(DEDUCTION_KEYS).forEach(k => {
+    const el = $("#" + ADJ_ID_MAP[k]);
+    if (el) el.addEventListener("input", () => { /* 实时？不，点保存 */ });
+  });
+  $("#btnSaveAdjust").addEventListener("click", saveAdjustForm);
 
   // 工资
   $("#btnAddSalary").addEventListener("click", () => openSalaryModal());

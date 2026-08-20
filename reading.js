@@ -33,7 +33,7 @@ function saveJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); 
 let LIB = loadJSON(K_LIB, []);
 let VOCAB = loadJSON(K_VOCAB, []);
 let CHECKINS = loadJSON(K_CHECK, []);
-let SETTINGS = loadJSON(K_SET, { accent: "en-US", rate: 1, llm: { base: "", key: "", model: "" } });
+let SETTINGS = loadJSON(K_SET, { accent: "en-US", rate: 1, engine: "auto", useLLMForTranslation: false, llm: { base: "", key: "", model: "" } });
 
 /* 当前正在阅读的文章（内存态） */
 let CURRENT = null;          // {id,title,tags,notes,raw,paragraphs,createdAt,updatedAt,annotations}
@@ -259,19 +259,53 @@ const VOICE_LIST = {
     { id: "en-GB-ThomasNeural", label: "Thomas 男声" }
   ]
 };
+let WEBSPEECH_VOICES = [];
+let CURRENT_VOICE_MODE = "edge"; // 'edge' 或 'webspeech'，决定音色下拉展示哪类
+
+function isWebSpeechForced() { return SETTINGS.engine === "webspeech"; }
+function preferredEngine() { return isWebSpeechForced() ? "webspeech" : "auto"; }
+function actualVoiceMode() {
+  if (isWebSpeechForced() || TTS.engine === "webspeech") return "webspeech";
+  return "edge";
+}
+
 function populateVoices() {
   const sel = $("#voiceSel"); if (!sel) return;
+  const mode = actualVoiceMode();
+  CURRENT_VOICE_MODE = mode;
   const acc = ($("#accentSel") && $("#accentSel").value) || SETTINGS.accent || "en-US";
-  const list = VOICE_LIST[acc] || VOICE_LIST["en-US"];
-  sel.innerHTML = list.map(v => '<option value="' + v.id + '">' + v.label + "</option>").join("");
-  // 恢复用户上次选择的音色（若不在当前口音列表则默认选第一个）
-  if (SETTINGS.voice && list.some(v => v.id === SETTINGS.voice)) sel.value = SETTINGS.voice;
-  else { sel.value = list[0].id; SETTINGS.voice = list[0].id; }
+
+  if (mode === "webspeech") {
+    // 系统语音：按口音过滤，名字就是 label
+    const list = WEBSPEECH_VOICES.filter(v => (v.lang || "").toLowerCase().startsWith(acc.toLowerCase()));
+    if (!list.length) {
+      sel.innerHTML = '<option value="">当前系统无对应口音语音</option>';
+      sel.disabled = true; return;
+    }
+    sel.disabled = false;
+    sel.innerHTML = list.map(v => '<option value="' + escapeHtml(v.voiceURI || v.name) + '">' + escapeHtml(v.name || v.lang) + "</option>").join("");
+    if (SETTINGS.webSpeechVoice && list.some(v => (v.voiceURI || v.name) === SETTINGS.webSpeechVoice)) sel.value = SETTINGS.webSpeechVoice;
+    else { sel.value = list[0].voiceURI || list[0].name; SETTINGS.webSpeechVoice = sel.value; }
+  } else {
+    // Edge 语音
+    sel.disabled = false;
+    const list = VOICE_LIST[acc] || VOICE_LIST["en-US"];
+    sel.innerHTML = list.map(v => '<option value="' + v.id + '">' + v.label + "</option>").join("");
+    if (SETTINGS.voice && list.some(v => v.id === SETTINGS.voice)) sel.value = SETTINGS.voice;
+    else { sel.value = list[0].id; SETTINGS.voice = list[0].id; }
+  }
+  updateEngineUI();
 }
+
 function currentEdgeVoice() {
   const sel = $("#voiceSel");
-  if (sel && sel.value) return sel.value;
+  if (sel && sel.value && CURRENT_VOICE_MODE === "edge") return sel.value;
   return ($("#accentSel") && $("#accentSel").value === "en-GB") ? "en-GB-RyanNeural" : "en-US-AriaNeural";
+}
+function currentWebSpeechVoice() {
+  const sel = $("#voiceSel");
+  if (!sel || !sel.value || CURRENT_VOICE_MODE !== "webspeech") return null;
+  return WEBSPEECH_VOICES.find(v => (v.voiceURI || v.name) === sel.value) || null;
 }
 
 /* Edge TTS 安全令牌（Sec-MS-GEC）：时间戳(Windows文件时) + 固定令牌 → SHA256 */
@@ -376,21 +410,22 @@ function edgeSynthesize(text) {
 
 let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0, lastText: "", lastOpts: null, lastParagraphIdx: -1 };
 function clearHi() { if (TTS.curHi) { TTS.curHi.classList.remove("hl"); TTS.curHi = null; } }
-function preferredEngine() {
-  return (SETTINGS.engine === "webspeech") ? "webspeech" : "auto";
-}
-function isWebSpeechForced() { return preferredEngine() === "webspeech"; }
 function updateEngineUI() {
-  const forced = isWebSpeechForced();
+  const mode = actualVoiceMode();
   const hint = $("#engineHint");
   if (hint) {
-    hint.textContent = forced
-      ? "强制内置朗读：调用浏览器系统语音，不依赖网络，但音色下拉不可用。"
-      : "自动模式下音色下拉选择 Edge 语音；若网络受限 Edge 失败，会切换为浏览器内置朗读。";
+    if (mode === "webspeech") {
+      hint.textContent = "当前使用浏览器内置朗读（系统语音）。音色下拉已切换为系统可用语音。";
+    } else {
+      hint.textContent = "当前使用 Edge TTS 自然语音。若网络受限失败，会自动回退为内置朗读。";
+    }
   }
-  // 强制内置朗读时，音色下拉灰显提示
-  const voiceSel = $("#voiceSel");
-  if (voiceSel) voiceSel.disabled = forced;
+  const ttsEngine = $("#ttsEngine");
+  if (ttsEngine) {
+    ttsEngine.textContent = mode === "webspeech"
+      ? "🔊 引擎：浏览器内置朗读（系统语音）"
+      : "🔊 引擎：Edge TTS 自然语音";
+  }
 }
 function saveLLMSettings() {
   if (!SETTINGS.llm) SETTINGS.llm = {};
@@ -430,6 +465,8 @@ async function speakText(text, opts) {
     console.warn("Edge TTS 不可用，回退内置朗读：", e.message);
     if (opts.highlight) toast("Edge TTS 当前不可用，已切换为内置朗读");
     if (reqId && TTS.reqId !== reqId) return;
+    // 回退后切换为系统语音列表，让用户能选择当前可用的音色
+    populateVoices();
     speakTextWebSpeech(text, opts);
   }
 }
@@ -461,17 +498,26 @@ async function playArticleEdge(reqId) {
 }
 
 /* Web Speech 回退实现 */
-let VOICES = [];
-function loadVoices() { try { VOICES = speechSynthesis.getVoices() || []; } catch (e) { VOICES = []; } }
+function loadVoices() {
+  try {
+    WEBSPEECH_VOICES = speechSynthesis.getVoices() || [];
+    if (actualVoiceMode() === "webspeech") populateVoices();
+  } catch (e) { WEBSPEECH_VOICES = []; }
+}
 if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-function pickVoice(accent) { return VOICES.find(v => v.lang === accent) || VOICES.find(v => v.lang && v.lang.startsWith(accent.slice(0, 2))) || null; }
+function pickVoice(accent) {
+  const chosen = currentWebSpeechVoice();
+  if (chosen) return chosen;
+  return WEBSPEECH_VOICES.find(v => v.lang === accent) || WEBSPEECH_VOICES.find(v => v.lang && v.lang.startsWith(accent.slice(0, 2))) || null;
+}
 
 function speakTextWebSpeech(text, opts) {
   if (!("speechSynthesis" in window)) { toast("当前浏览器不支持语音朗读"); return; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = parseFloat($("#rateRange") ? $("#rateRange").value : "1") || 1;
-  const v = pickVoice($("#accentSel") ? $("#accentSel").value : SETTINGS.accent); if (v) u.voice = v;
+  const accent = $("#accentSel") ? $("#accentSel").value : SETTINGS.accent;
+  const v = pickVoice(accent); if (v) u.voice = v;
   if (opts && opts.highlight) {
     u.onboundary = (ev) => {
       const ci = ev.charIndex || 0;
@@ -986,14 +1032,15 @@ async function runOCRWithFallback(Tess, file, logger) {
   bases.push('https://cdn.bootcdn.net/ajax/libs/tesseract.js/5.1.1');
 
   // 多 langPath 镜像：eng.traineddata (~10MB best / ~4MB 精简)
-  // cacheBust=1 防止浏览器缓存旧失败请求
+  // 注意：langPath 是目录，tesseract 会拼接 `${langPath}/eng.traineddata[.gz]`，
+  // 因此不能在这里加 ?cacheBust=1，否则会被当成路径的一部分导致 404。
   const langPaths = [
     'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0_best',     // jsDelivr GH 镜像（国内较稳）
     'https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0',          // 同上，精简版
     'https://cdn.jsdelivr.net/npm/tesseract-data@4.0.0/4.0.0_best',        // 备用 npm 镜像
     'https://tessdata.projectnaptha.com/4.0.0_best',                       // 官方主源
     'https://tessdata.projectnaptha.com/4.0.0'
-  ].map(u => u + '?cacheBust=1');
+  ];
 
   const seen = new Set();
   let lastErr = null;
@@ -1125,7 +1172,8 @@ function bind() {
     const setAccent = $("#setAccent"); if (setAccent) setAccent.value = SETTINGS.accent;
   });
   $("#voiceSel").addEventListener("change", () => {
-    SETTINGS.voice = $("#voiceSel").value;
+    if (actualVoiceMode() === "webspeech") SETTINGS.webSpeechVoice = $("#voiceSel").value;
+    else SETTINGS.voice = $("#voiceSel").value;
     saveJSON(K_SET, SETTINGS);
     restartTTSIfPlaying();
   });
@@ -1227,12 +1275,14 @@ function bind() {
   $("#llmBase").value = (SETTINGS.llm && SETTINGS.llm.base) || "";
   $("#llmKey").value = (SETTINGS.llm && SETTINGS.llm.key) || "";
   $("#llmModel").value = (SETTINGS.llm && SETTINGS.llm.model) || "";
+  populateVoices();
   updateEngineUI();
   $("#setAccent").addEventListener("change", () => { SETTINGS.accent = $("#setAccent").value; saveJSON(K_SET, SETTINGS); $("#accentSel").value = SETTINGS.accent; populateVoices(); restartTTSIfPlaying(); });
   $("#setRate").addEventListener("change", () => { SETTINGS.rate = parseFloat($("#setRate").value); saveJSON(K_SET, SETTINGS); $("#rateRange").value = SETTINGS.rate; $("#rateVal").textContent = SETTINGS.rate.toFixed(2) + "x"; restartTTSIfPlaying(); });
   $("#setEngine").addEventListener("change", () => {
     SETTINGS.engine = $("#setEngine").value || "auto";
     saveJSON(K_SET, SETTINGS);
+    populateVoices();
     updateEngineUI();
     // 引擎改变时，如果正在朗读则重新以新引擎朗读
     if (TTS.state === "playing" && TTS.lastText) { stopTTS(); setTimeout(() => { TTS.reqId++; speakText(TTS.lastText, Object.assign({}, TTS.lastOpts, { reqId: TTS.reqId })); }, 80); }

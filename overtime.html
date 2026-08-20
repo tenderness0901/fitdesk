@@ -35,7 +35,7 @@
   <a class="ov-back" href="index.html" title="返回工作台首页">← 返回工作台</a>
   <div class="ov-title">⏰ 加班 & 加班费台账</div>
   <div class="ov-actions">
-    <button class="btn ghost sm" id="btnOvSettings">⚙ 设置</button>
+    <button class="btn ghost sm" id="btnOvSettings">⚙ 薪资设置</button>
     <button class="btn ghost sm" id="btnExport">⬇ 导出</button>
   </div>
 </header>
@@ -56,13 +56,19 @@
 
     <!-- 月度统计 -->
     <div id="statMonthView">
+      <div class="ov-month-header">
+        <span id="monthLabel">2026-08</span>
+        <button class="btn sm" id="btnLockMonth" title="锁定后当月记录不可编辑/删除">🔒 锁定当月</button>
+      </div>
       <div class="grid-3 compact ov-kpi" id="monthKpi"></div>
+      <div class="ov-kpi-hint">⚠️ 所有金额仅个人预估，不作为财务凭证</div>
       <div class="ov-breakdown" id="monthBreakdown"></div>
     </div>
 
     <!-- 年度统计 -->
     <div id="statYearView" style="display:none">
       <div class="grid-3 compact ov-kpi" id="yearKpi"></div>
+      <div class="ov-kpi-hint">⚠️ 所有金额仅个人预估，不作为财务凭证</div>
       <div class="ov-monthly-table" id="yearMonthlyTable"></div>
     </div>
   </div>
@@ -118,6 +124,41 @@
     </div>
   </div>
 
+  <!-- ===================== 月度补贴&扣款 ===================== -->
+  <div class="card">
+    <div class="card-head">
+      <h3>💵 月度补贴 & 扣款</h3>
+      <span class="hint" id="adjustMonthLabel">2026-08</span>
+    </div>
+    <div class="form ov-adjust-form">
+      <p class="hint">以下金额按当前查询月份录入，自动参与工资核算。</p>
+      <div class="ov-adjust-group">
+        <h4>补贴项</h4>
+        <div class="row-3">
+          <label>餐补<input type="number" id="adjMeal" step="0.01" min="0" placeholder="0" /></label>
+          <label>交通补贴<input type="number" id="adjTraffic" step="0.01" min="0" placeholder="0" /></label>
+          <label>全勤<input type="number" id="adjFull" step="0.01" min="0" placeholder="0" /></label>
+        </div>
+        <div class="row-3">
+          <label>住房补贴<input type="number" id="adjHousingAllow" step="0.01" min="0" placeholder="0" /></label>
+          <label>其他补贴<input type="number" id="adjOtherAllow" step="0.01" min="0" placeholder="0" /></label>
+        </div>
+      </div>
+      <div class="ov-adjust-group">
+        <h4>扣款项</h4>
+        <div class="row-3">
+          <label>社保个人<input type="number" id="adjSocial" step="0.01" min="0" placeholder="0" /></label>
+          <label>公积金个人<input type="number" id="adjFund" step="0.01" min="0" placeholder="0" /></label>
+          <label>预估个税<input type="number" id="adjTax" step="0.01" min="0" placeholder="0" /></label>
+        </div>
+        <div class="row-3">
+          <label>其他扣款<input type="number" id="adjOtherDeduc" step="0.01" min="0" placeholder="0" /></label>
+        </div>
+      </div>
+      <button class="btn primary sm" id="btnSaveAdjust">💾 保存当月补贴扣款</button>
+    </div>
+  </div>
+
   <!-- ===================== 台账列表 ===================== -->
   <div class="card">
     <div class="card-head">
@@ -132,17 +173,22 @@
           <option value="compoff">调休</option>
           <option value="free">无偿加班</option>
         </select>
+        <select id="filterStatus" class="mini">
+          <option value="">全部状态</option>
+          <option value="pending">待结算</option>
+          <option value="settled">已结算</option>
+        </select>
         <input type="text" id="filterSearch" class="mini" placeholder="搜索备注…" />
       </div>
     </div>
     <div id="otList" class="list ov-list"></div>
   </div>
 
-  <!-- ===================== 工资实发录入 ===================== -->
+  <!-- ===================== 工资实发对比 ===================== -->
   <div class="card">
     <div class="card-head">
       <h3>💰 工资实发对比</h3>
-      <button class="btn sm" id="btnAddSalary">➕ 录入工资</button>
+      <button class="btn sm" id="btnAddSalary">➕ 录入实发工资</button>
     </div>
     <div id="salaryList" class="list ov-salary-list"></div>
   </div>
@@ -154,23 +200,37 @@
 <!-- 设置弹窗 -->
 <div class="modal" id="settingsModal">
   <div class="modal-box modal-lg">
-    <div class="modal-head"><h3>⚙ 加班费计算设置</h3><button class="x" data-close>✕</button></div>
-    <div class="form">
+    <div class="modal-head"><h3>⚙ 薪资 & 加班费计算设置</h3><button class="x" data-close>✕</button></div>
+    <div class="form ov-settings-form">
       <div class="row-2">
         <label>月基本工资（元）
           <input type="number" id="setBaseSalary" step="100" min="0" placeholder="如 8000" />
         </label>
-        <label>计薪天数
-          <input type="number" id="setWorkDays" step="0.25" min="1" value="21.75" />
+        <label>加班核算基数（元）
+          <input type="number" id="setOtBaseSalary" step="100" min="0" placeholder="可与基本工资不同" />
         </label>
       </div>
       <div class="row-2">
+        <label>计薪天数
+          <input type="number" id="setWorkDays" step="0.25" min="1" value="21.75" />
+        </label>
         <label>每日标准工时（小时）
           <input type="number" id="setDailyHours" step="0.5" min="1" value="8" />
         </label>
+      </div>
+      <div class="row-2">
         <label>基础时薪（自动换算）
           <input type="text" id="setHourlyRate" readonly class="ov-readonly" />
         </label>
+        <label>个税起征点（元）
+          <input type="number" id="setTaxThreshold" step="100" min="0" value="5000" />
+        </label>
+      </div>
+      <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
+      <p class="hint">社保公积金（个人部分，用于实发估算）：</p>
+      <div class="row-2">
+        <label>社保个人合计（元/月）<input type="number" id="setSocial" step="0.01" min="0" placeholder="0" /></label>
+        <label>公积金个人合计（元/月）<input type="number" id="setFund" step="0.01" min="0" placeholder="0" /></label>
       </div>
       <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
       <p class="hint">加班倍率（可手动调整）：</p>
