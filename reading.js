@@ -271,11 +271,22 @@ let CURRENT_VOICE_MODE = "edge"; // 'edge' 或 'webspeech'，决定音色下拉�
 function isWebSpeechForced() { return SETTINGS.engine === "webspeech"; }
 function preferredEngine() { return isWebSpeechForced() ? "webspeech" : "auto"; }
 function actualVoiceMode() {
-  if (isWebSpeechForced() || TTS.engine === "webspeech" || TTS.fallbackToWebSpeech) return "webspeech";
+  if (isWebSpeechForced()) return "webspeech";
+  if (TTS.engine === "webspeech" || TTS.fallbackToWebSpeech) return "webspeech";
   return "edge";
+}
+function isWebSpeechAvailable() {
+  if (!("speechSynthesis" in window)) return false;
+  const list = speechSynthesis.getVoices() || [];
+  return list.length > 0;
 }
 function setEngineFallback(fallback) {
   TTS.fallbackToWebSpeech = !!fallback;
+  // 回退时若 Web Speech 连音色都没有，给出明确提示
+  if (fallback && !isWebSpeechAvailable()) {
+    updateEngineUI();
+    return;
+  }
   if (fallback && "speechSynthesis" in window) loadVoices();
   populateVoices();
   updateEngineUI();
@@ -286,6 +297,9 @@ function populateVoices() {
   const mode = actualVoiceMode();
   CURRENT_VOICE_MODE = mode;
   const acc = ($("#accentSel") && $("#accentSel").value) || SETTINGS.accent || "en-US";
+
+  // 记录用户当前选中的值，重建 option 后尽量保留（避免 loadVoices 等异步回调重置）
+  const currentValue = sel.value;
 
   if (mode === "webspeech") {
     // 系统语音：按口音过滤，名字就是 label
@@ -307,14 +321,19 @@ function populateVoices() {
     }
     sel.disabled = false;
     sel.innerHTML = list.map(v => '<option value="' + escapeHtml(v.voiceURI || v.name) + '">' + escapeHtml(v.name || v.lang) + "</option>").join("");
-    if (SETTINGS.webSpeechVoice && list.some(v => (v.voiceURI || v.name) === SETTINGS.webSpeechVoice)) sel.value = SETTINGS.webSpeechVoice;
+    // 优先保留当前选择，其次恢复保存值，最后默认第一个
+    const saved = SETTINGS.webSpeechVoice;
+    if (currentValue && list.some(v => (v.voiceURI || v.name) === currentValue)) sel.value = currentValue;
+    else if (saved && list.some(v => (v.voiceURI || v.name) === saved)) sel.value = saved;
     else { sel.value = list[0].voiceURI || list[0].name; SETTINGS.webSpeechVoice = sel.value; }
   } else {
     // Edge 语音
     sel.disabled = false;
     const list = VOICE_LIST[acc] || VOICE_LIST["en-US"];
     sel.innerHTML = list.map(v => '<option value="' + v.id + '">' + v.label + "</option>").join("");
-    if (SETTINGS.voice && list.some(v => v.id === SETTINGS.voice)) sel.value = SETTINGS.voice;
+    const saved = SETTINGS.voice;
+    if (currentValue && list.some(v => v.id === currentValue)) sel.value = currentValue;
+    else if (saved && list.some(v => v.id === saved)) sel.value = saved;
     else { sel.value = list[0].id; SETTINGS.voice = list[0].id; }
   }
   saveJSON(K_SET, SETTINGS);
@@ -480,7 +499,22 @@ function checkTTSSupport() {
     hint.style.display = "block";
     hint.innerHTML = "ℹ️ 当前浏览器无系统语音，仅依赖 Edge TTS；若 Edge TTS 不可用则无法朗读。";
   } else {
+    // 等待音色列表异步加载后二次判断（国产浏览器常有 speechSynthesis 但返回空列表）
+    const finalize = () => {
+      const voices = speechSynthesis.getVoices() || [];
+      if (voices.length === 0) {
+        hint.className = "rd-tts-support error";
+        hint.style.display = "block";
+        hint.innerHTML = "⚠️ 当前浏览器未返回任何系统语音（常见：微信/QQ/夸克/部分手机自带浏览器）。请换用 <b>Chrome / Edge / Safari</b> 访问，否则无法朗读。";
+      } else {
+        hint.style.display = "none";
+      }
+    };
     hint.style.display = "none";
+    const voices = speechSynthesis.getVoices() || [];
+    if (voices.length > 0) return;
+    // 3.5 秒后仍无音色，给出最终判定
+    setTimeout(finalize, 3600);
   }
 }
 function saveLLMSettings() {
@@ -621,6 +655,11 @@ function speakTextWebSpeech(text, opts) {
 function playArticle() {
   if (TTS.state === "playing") { pauseTTS(); return; }
   if (TTS.state === "paused") { resumeTTS(); return; }
+  // 播放前做一次可用性兜底：如果连 Web Speech 都没音色，直接提示
+  if (actualVoiceMode() === "webspeech" && !isWebSpeechAvailable()) {
+    toast("当前浏览器无可用语音，请换 Chrome/Edge/Safari");
+    return;
+  }
   $("#btnPlay").textContent = "⏸ 暂停";
   TTS.state = "playing"; TTS.reqId++;
   speakText(getSpokenText(), { highlight: true, reqId: TTS.reqId });
@@ -667,16 +706,21 @@ function readSelection() {
    翻译（多源回退：Google gtx / LibreTranslate 公开镜像 / MyMemory）
    ============================================================ */
 async function fetchWithTimeout(url, opts = {}, ms = 10000) {
+  // 兼容不支持 AbortController 的内置浏览器（如微信 X5）：用 Promise.race 做兜底超时
   const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
   let t;
+  const race = [];
   try {
+    let reqOpts = opts;
     if (ctrl) {
-      t = setTimeout(() => ctrl.abort(), ms);
-      opts = Object.assign({}, opts, { signal: ctrl.signal });
+      t = setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, ms);
+      reqOpts = Object.assign({}, opts, { signal: ctrl.signal });
     }
-    const r = await fetch(url, opts);
-    if (!r.ok) throw new Error("http " + r.status);
-    return r;
+    const p = fetch(url, reqOpts).then(r => { if (!r.ok) throw new Error("http " + r.status); return r; });
+    race.push(p);
+    // 无论是否支持 AbortController，都用 setTimeout 做硬兜底，防止 abort 不生效导致永久挂起
+    race.push(new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms + 800)));
+    return await Promise.race(race);
   } finally {
     if (t) clearTimeout(t);
   }
@@ -723,9 +767,12 @@ const LIBRE_MIRRORS = [
 ];
 
 const TRANSLATE_PROVIDERS = [
+  // MyMemory 在国内相对可访问，但限流；短句优先走它
+  { name: "mymemory", maxLen: 500, fn: myMemoryTranslate },
+  // Google 免费端点在国内多数网络不可用，放在后面作为海外环境备用
   { name: "google", maxLen: 4000, fn: gtranslate },
-  ...LIBRE_MIRRORS.map(u => ({ name: "libre-" + u.replace(/^https:\/\//, "").split(".")[0], maxLen: 1500, fn: t => libreTranslate(u, t) })),
-  { name: "mymemory", maxLen: 500, fn: myMemoryTranslate }
+  // LibreTranslate 公开镜像稳定性差，兜底尝试
+  ...LIBRE_MIRRORS.map(u => ({ name: "libre-" + u.replace(/^https:\/\//, "").split(".")[0], maxLen: 1500, fn: t => libreTranslate(u, t) }))
 ];
 
 function splitBySentences(text, maxLen = 4000) {
@@ -752,22 +799,29 @@ async function translateAny(text, style) {
       if (res) return res;
     } catch (e) { console.warn("LLM 翻译失败，回退免费源", e); }
   }
+  // 单句整体超时 12 秒，避免某个 provider 永久挂起
+  const overallMs = 12000;
+  const start = Date.now();
   let lastErr = "无可用翻译源";
   for (const p of TRANSLATE_PROVIDERS) {
     if (text.length > p.maxLen) continue;
+    if (Date.now() - start > overallMs) { lastErr = "翻译请求整体超时"; break; }
     try {
       const res = await translateOneProvider(text, p);
       if (res && res.trim()) return res.trim();
     } catch (e) {
       lastErr = p.name + ": " + (e.message || e);
       console.warn("翻译源失败", p.name, e.message);
+      // 轻微延迟，避免触发限流
+      await new Promise(r => setTimeout(r, 80));
     }
   }
   // 如果文本太长导致全部跳过，拆小后再试（主要是 MyMemory 只能 500 字符）
-  if (text.length > 500) {
+  if (text.length > 500 && Date.now() - start <= overallMs) {
     const small = splitBySentences(text, 480);
     const parts = [];
     for (const c of small) {
+      if (Date.now() - start > overallMs) { parts.push("（部分翻译超时）"); break; }
       parts.push(await translateAny(c, style));
       await new Promise(r => setTimeout(r, 120));
     }
@@ -785,11 +839,14 @@ async function translateLong(text) {
     try { return await llmTranslate(text, "summary"); }
     catch (e) { console.warn("LLM 长文翻译失败，拆段回退", e); }
   }
-  const chunks = splitBySentences(text, 1500); // 优先适配 LibreTranslate
+  const chunks = splitBySentences(text, 500); // 适配 MyMemory 等短句服务
   const out = [];
+  const start = Date.now();
+  const longMs = 25000; // 全文大意最多等 25 秒
   for (const c of chunks) {
+    if (Date.now() - start > longMs) { out.push("（翻译超时，请重试或配置 LLM）"); break; }
     out.push(await translate(c));
-    await new Promise(r => setTimeout(r, 120));
+    if (Date.now() - start <= longMs) await new Promise(r => setTimeout(r, 120));
   }
   return out.join("\n");
 }
@@ -821,7 +878,7 @@ async function renderTranslationAndAI() {
   $("#trAI").innerHTML = loading("正在生成主旨与长难句解析…");
   $$(".btn-cancel-tr").forEach(b => b.addEventListener("click", cancelTranslation));
 
-  const overallTimeout = 45000; // 45 秒整体超时
+  const overallTimeout = 25000; // 25 秒整体超时
   const startTime = Date.now();
   function checkTimeout() {
     if (TRANSLATION_CANCEL) throw new Error("CANCELLED");
@@ -1339,10 +1396,18 @@ function bind() {
     const setAccent = $("#setAccent"); if (setAccent) setAccent.value = SETTINGS.accent;
   });
   $("#voiceSel").addEventListener("change", () => {
-    if (actualVoiceMode() === "webspeech") SETTINGS.webSpeechVoice = $("#voiceSel").value;
-    else SETTINGS.voice = $("#voiceSel").value;
+    const val = $("#voiceSel").value;
+    const label = $("#voiceSel").options[$("#voiceSel").selectedIndex]?.text || val;
+    if (actualVoiceMode() === "webspeech") SETTINGS.webSpeechVoice = val;
+    else SETTINGS.voice = val;
     saveJSON(K_SET, SETTINGS);
-    restartTTSIfPlaying();
+    if (TTS.state === "playing" && TTS.lastText) {
+      toast("已切换音色：" + label);
+      restartTTSIfPlaying();
+    } else {
+      // 未播放时也给个轻反馈，让用户知道选择已生效
+      toast("音色已设为 " + label + "，点击朗读生效");
+    }
   });
   $("#rateRange").addEventListener("input", () => {
     $("#rateVal").textContent = parseFloat($("#rateRange").value).toFixed(2) + "x";
