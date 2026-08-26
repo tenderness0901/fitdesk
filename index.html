@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="FitDesk" />
 <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-  <link rel="stylesheet" href="styles.css?v=2026082603" />
+  <link rel="stylesheet" href="styles.css?v=2026082604" />
 <script>
 (function(){
   window._errs = [];
@@ -494,7 +494,11 @@
         </div>
         <div id="syncStatus" class="hint"></div>
       </div>
-      </div>
+    </section>
+
+    <!-- 英语精读（内嵌阅读模块，集成进工作台框架） -->
+    <section class="module" id="m-reading">
+      <iframe class="rd-frame" src="reading.html" title="英语精读"></iframe>
     </section>
   </main>
 </div>
@@ -581,8 +585,8 @@
 </nav>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="words1800.js?v=2026082603"></script>
-<script src="app.js?v=2026082603"></script>
+<script src="words1800.js?v=2026082604"></script>
+<script src="app.js?v=2026082604"></script>
 
 <script>
   if ('serviceWorker' in navigator) {
@@ -599,7 +603,7 @@
           console.log('SW 清理失败：', e);
         });
       } else {
-        navigator.serviceWorker.register('sw.js?v=2026082603').catch(function (e) {
+        navigator.serviceWorker.register('sw.js?v=2026082604').catch(function (e) {
           console.log('SW 注册失败（不影响使用）：', e);
         });
         if (url.searchParams.has('sw-purged')) {
