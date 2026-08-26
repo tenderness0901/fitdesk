@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="FitDesk" />
 <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-  <link rel="stylesheet" href="styles.css?v=2026082604" />
+  <link rel="stylesheet" href="styles.css?v=2026082701" />
 <script>
 (function(){
   window._errs = [];
@@ -55,6 +55,7 @@
       <button class="nav-item" data-module="trackers"><span class="nav-ico">🕒</span>上次记录</button>
       <button class="nav-item" data-module="english"><span class="nav-ico">🔤</span>英语学习</button>
       <button class="nav-item" data-module="reading"><span class="nav-ico">📖</span>英语精读</button>
+      <button class="nav-item" data-module="readingex"><span class="nav-ico">📄</span>阅读文章</button>
       <button class="nav-item" data-module="pantry"><span class="nav-ico">🥫</span>食物入库</button>
       <button class="nav-item" data-module="watermark"><span class="nav-ico">🧽</span>图片去水印</button>
       <button class="nav-item" data-module="overtime"><span class="nav-ico">⏰</span>加班台账</button>
@@ -500,6 +501,11 @@
     <section class="module" id="m-reading">
       <iframe class="rd-frame" src="reading.html" title="英语精读"></iframe>
     </section>
+
+    <!-- 阅读文章（套用 english-reading-exercises 技能：划词即译 + 单词本 + 6 种练习） -->
+    <section class="module" id="m-readingex">
+      <iframe class="rd-frame" src="reading-ex.html?v=2026082701" title="阅读文章"></iframe>
+    </section>
   </main>
 </div>
 
@@ -580,13 +586,14 @@
   <button class="tab-item" data-module="english"><span class="tab-ico">🔤</span><span class="tab-label">英语</span></button>
   <button class="tab-item" data-module="watermark"><span class="tab-ico">🧽</span><span class="tab-label">水印</span></button>
   <button class="tab-item" data-module="reading"><span class="tab-ico">📖</span><span class="tab-label">精读</span></button>
+  <button class="tab-item" data-module="readingex"><span class="tab-ico">📄</span><span class="tab-label">阅读</span></button>
   <button class="tab-item" data-module="overtime"><span class="tab-ico">⏰</span><span class="tab-label">加班</span></button>
   <button class="tab-item" data-module="backup"><span class="tab-ico">☁️</span><span class="tab-label">备份</span></button>
 </nav>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="words1800.js?v=2026082604"></script>
-<script src="app.js?v=2026082604"></script>
+<script src="words1800.js?v=2026082701"></script>
+<script src="app.js?v=2026082701"></script>
 
 <script>
   if ('serviceWorker' in navigator) {
@@ -603,7 +610,7 @@
           console.log('SW 清理失败：', e);
         });
       } else {
-        navigator.serviceWorker.register('sw.js?v=2026082604').catch(function (e) {
+        navigator.serviceWorker.register('sw.js?v=2026082701').catch(function (e) {
           console.log('SW 注册失败（不影响使用）：', e);
         });
         if (url.searchParams.has('sw-purged')) {
