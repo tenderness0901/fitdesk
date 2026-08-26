@@ -129,7 +129,7 @@ function renderArticle() {
   paras.forEach((p, i) => {
     const el = document.createElement("p");
     el.className = "rd-para"; el.dataset.pi = i;
-    el.innerHTML = renderParagraph(p, art.annotations.filter(a => a.para === i), base);
+    el.innerHTML = '<button class="rd-para-repeat" data-pi="' + i + '" title="循环朗读本段">🔁</button>' + renderParagraph(p, art.annotations.filter(a => a.para === i), base);
     box.appendChild(el);
     base += p.length + 1; // +1 对应 join('\n')
   });
@@ -463,7 +463,8 @@ function edgeSynthesize(text) {
   });
 }
 
-let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0, lastText: "", lastOpts: null, lastParagraphIdx: -1, fallbackToWebSpeech: false };
+let TTS = { state: "idle", engine: null, audio: null, curHi: null, boundaries: [], curBoundaryIdx: -1, reqId: 0, lastText: "", lastOpts: null, lastParagraphIdx: -1, fallbackToWebSpeech: false,
+  sentences: [], sentIdx: 0, curSentence: null, repeatPid: -1, sentHi: [], _abort: null };
 let TRANSLATION_CANCEL = false;
 function shouldCancelTranslation() { return TRANSLATION_CANCEL; }
 function cancelTranslation() { TRANSLATION_CANCEL = true; }
@@ -540,6 +541,161 @@ function highlightAtChar(ci) {
   if (hit && hit.el !== TTS.curHi) { clearHi(); hit.el.classList.add("hl"); TTS.curHi = hit.el; }
 }
 
+/* ---------------- 句子队列朗读（根治「跳句」） ----------------
+   整篇一次性播放时，部分浏览器（尤其 Web Speech 回退）会截断 / 跳读。
+   改为按句子数组顺序逐句接力播放：Edge / Web Speech 都播完一句再接下一句，
+   绝不会被浏览器跳读；同时做句子级高亮 + 自动滚动 + 段落循环。 */
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function clearSentenceHi() {
+  if (TTS.sentHi) TTS.sentHi.forEach(el => { try { el.classList.remove("hl-sent"); } catch (_) {} });
+  TTS.sentHi = [];
+}
+function highlightSentence(sent) {
+  clearSentenceHi();
+  for (const s of WORD_SPANS) {
+    if (s.off >= sent.start && s.off < sent.end) { s.el.classList.add("hl-sent"); TTS.sentHi.push(s.el); }
+  }
+}
+function scrollToSentence(sent) {
+  let el = null;
+  for (const s of WORD_SPANS) { if (s.off >= sent.start) { el = s.el; break; } }
+  if (!el && WORD_SPANS.length) el = WORD_SPANS[WORD_SPANS.length - 1].el;
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+/* 把整篇文章按句切分，并标记每句所属段落（高亮 / 滚动 / 循环都基于此） */
+function buildSentences() {
+  const full = getSpokenText();
+  const paras = CURRENT.paragraphs;
+  let base = 0; const ranges = [];
+  for (const p of paras) { const s = base, e = base + p.length; ranges.push([s, e]); base = e + 1; }
+  const re = /[^.!?]+[.!?]*/g;
+  let m, out = [];
+  while ((m = re.exec(full))) {
+    const text = m[0];
+    if (!text.trim()) continue;
+    const s = m.index, e = s + text.length;
+    let para = ranges.length - 1;
+    for (let i = 0; i < ranges.length; i++) { if (s <= ranges[i][1]) { para = i; break; } }
+    out.push({ text, start: s, end: e, para });
+  }
+  return out;
+}
+
+/* 逐句朗读：Edge TTS（每句单独合成） */
+function speakSentenceEdge(sent, reqId) {
+  return new Promise((resolve) => {
+    TTS._abort = () => resolve(false);
+    const done = (ok) => { TTS._abort = null; resolve(!!ok); };
+    edgeSynthesize(sent.text).then(d => {
+      if (reqId !== TTS.reqId) { try { URL.revokeObjectURL(d.audioUrl); } catch (_) {} return done(false); }
+      if (TTS.audio && TTS.audio.src) { try { URL.revokeObjectURL(TTS.audio.src); } catch (_) {} }
+      const audio = new Audio(d.audioUrl); TTS.audio = audio;
+      const boundaries = d.boundaries.slice().sort((a, b) => a.offsetSec - b.offsetSec);
+      const baseOff = sent.start;
+      audio.ontimeupdate = () => {
+        const t = audio.currentTime;
+        let idx = -1;
+        for (let i = 0; i < boundaries.length; i++) { if (boundaries[i].offsetSec <= t) idx = i; else break; }
+        if (idx >= 0) highlightAtChar(baseOff + (boundaries[idx].charIndex || 0));
+      };
+      audio.onended = () => { clearHi(); done(true); };
+      audio.onerror = () => { clearHi(); done(false); };
+      TTS.engine = "edge"; TTS.fallbackToWebSpeech = false; TTS.state = "playing";
+      audio.play().catch(() => done(false));
+    }).catch(() => done(false));
+  });
+}
+
+/* 逐句朗读：Web Speech 回退（同样按句播，避免整篇截断跳读） */
+function speakSentenceWebSpeech(sent, reqId) {
+  return new Promise((resolve) => {
+    TTS._abort = resolve;
+    const done = () => { TTS._abort = null; resolve(); };
+    if (!("speechSynthesis" in window)) { toast("当前浏览器不支持语音朗读"); return done(); }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(sent.text);
+    u.rate = parseFloat($("#rateRange") ? $("#rateRange").value : "1") || 1;
+    u.pitch = parseFloat($("#pitchRange") ? $("#pitchRange").value : "1") || 1;
+    const accent = $("#accentSel") ? $("#accentSel").value : SETTINGS.accent;
+    const v = pickVoice(accent); if (v) u.voice = v;
+    const baseOff = sent.start;
+    u.onboundary = (ev) => { highlightAtChar(baseOff + (ev.charIndex || 0)); };
+    u.onend = () => { clearHi(); done(); };
+    u.onerror = () => { clearHi(); done(); };
+    TTS.engine = "webspeech"; TTS.state = "playing";
+    speechSynthesis.speak(u);
+  });
+}
+
+/* 句子队列主循环：按顺序接力播放，播完一句接下一句 */
+async function runSentenceLoop() {
+  const reqId = TTS.reqId;
+  while (TTS.state === "playing" && TTS.sentIdx < TTS.sentences.length) {
+    const sent = TTS.sentences[TTS.sentIdx];
+    TTS.curSentence = sent;
+    highlightSentence(sent);
+    scrollToSentence(sent);
+    try {
+      if (actualVoiceMode() === "webspeech" || isWebSpeechForced()) {
+        await speakSentenceWebSpeech(sent, reqId);
+      } else {
+        const ok = await speakSentenceEdge(sent, reqId);
+        if (reqId !== TTS.reqId) return;
+        if (!ok) {
+          setEngineFallback(true);
+          toast("Edge TTS 不可用，已切换为内置朗读");
+          await speakSentenceWebSpeech(sent, reqId);
+        }
+      }
+    } catch (_) {}
+    if (reqId !== TTS.reqId) return; // 被停止 / 切换引擎
+    // 段落循环：当前句属于循环段落且下一句不在该段落时，回到该段落首句（含文章末尾）
+    if (TTS.repeatPid >= 0 && sent.para === TTS.repeatPid) {
+      const nextIdx = TTS.sentIdx + 1;
+      const nextPara = nextIdx < TTS.sentences.length ? TTS.sentences[nextIdx].para : -2;
+      if (nextPara !== TTS.repeatPid) {
+        const first = TTS.sentences.findIndex(s => s.para === TTS.repeatPid);
+        if (first >= 0) { TTS.sentIdx = first; await delay(60); continue; }
+      }
+    }
+    TTS.sentIdx++;
+    await delay(60); // 句间小停顿，规避部分浏览器逐句截断
+  }
+  if (TTS.state === "playing") finishPlayback();
+}
+
+function finishPlayback() {
+  clearSentenceHi(); clearHi();
+  TTS.state = "idle"; TTS.sentIdx = 0; TTS.curSentence = null;
+  $$(".rd-para-repeat.active").forEach(b => b.classList.remove("active"));
+  $("#btnPlay").textContent = "▶ 朗读";
+}
+
+/* 段落循环按钮：点击在「开启 / 取消」间切换；未播放时自动从本段开始 */
+function toggleParaRepeat(pi, btn) {
+  if (TTS.repeatPid === pi) {
+    TTS.repeatPid = -1;
+    $$(".rd-para-repeat.active").forEach(b => b.classList.remove("active"));
+    toast("已取消段落循环");
+  } else {
+    TTS.repeatPid = pi;
+    $$(".rd-para-repeat").forEach(b => b.classList.toggle("active", parseInt(b.dataset.pi, 10) === pi));
+    toast("已开启本段循环 🔁");
+    if (TTS.state !== "playing") {
+      TTS.sentences = buildSentences();
+      if (!TTS.sentences.length) return;
+      const first = TTS.sentences.findIndex(s => s.para === pi);
+      if (first < 0) return;
+      TTS.sentIdx = first; TTS.state = "playing"; TTS.reqId++;
+      $("#btnPlay").textContent = "⏸ 暂停";
+      runSentenceLoop();
+    }
+  }
+}
+
 /* 入口：朗读（主 Edge，回退 Web Speech） */
 async function speakText(text, opts) {
   opts = opts || {};
@@ -574,10 +730,15 @@ async function speakText(text, opts) {
 
 /* 切换音色/口音/语速后，若正在朗读则停止并用新设置重新朗读 */
 function restartTTSIfPlaying() {
-  if (TTS.state !== "playing" || !TTS.lastText) return;
+  if (TTS.state !== "playing") return;
+  const fromIdx = TTS.sentIdx; // 从「当前句」重启，而不是整篇重头
   stopTTS();
-  // 短暂延迟，让 stop 完成
-  setTimeout(() => { TTS.reqId++; speakText(TTS.lastText, Object.assign({}, TTS.lastOpts, { reqId: TTS.reqId })); }, 80);
+  TTS.sentences = buildSentences();
+  if (!TTS.sentences.length) return;
+  TTS.sentIdx = Math.min(fromIdx, TTS.sentences.length - 1);
+  TTS.state = "playing"; TTS.reqId++;
+  $("#btnPlay").textContent = "⏸ 暂停";
+  runSentenceLoop();
 }
 
 async function playArticleEdge(reqId) {
@@ -668,9 +829,12 @@ function playArticle() {
     toast("当前浏览器无可用语音，请换 Chrome/Edge/Safari");
     return;
   }
-  $("#btnPlay").textContent = "⏸ 暂停";
+  TTS.sentences = buildSentences();
+  if (!TTS.sentences.length) { toast("没有可朗读的内容"); return; }
+  if (TTS.state !== "paused") TTS.sentIdx = 0; // 非「继续」则从头开始
   TTS.state = "playing"; TTS.reqId++;
-  speakText(getSpokenText(), { highlight: true, reqId: TTS.reqId });
+  $("#btnPlay").textContent = "⏸ 暂停";
+  runSentenceLoop();
 }
 function pauseTTS() {
   if (TTS.engine === "edge" && TTS.audio) { TTS.audio.pause(); TTS.state = "paused"; $("#btnPlay").textContent = "⏸ 继续"; }
@@ -681,9 +845,13 @@ function resumeTTS() {
   else if (TTS.engine === "webspeech") { speechSynthesis.resume(); TTS.state = "playing"; $("#btnPlay").textContent = "⏸ 暂停"; }
 }
 function stopTTS() {
-  if (TTS.engine === "edge" && TTS.audio) { try { TTS.audio.pause(); } catch (_) {} TTS.audio = null; }
+  if (TTS._abort) { const a = TTS._abort; TTS._abort = null; a(); } // 强制结束正在 await 的句子
+  if (TTS.engine === "edge" && TTS.audio) { try { if (TTS.audio.src) URL.revokeObjectURL(TTS.audio.src); } catch (_) {} try { TTS.audio.pause(); } catch (_) {} TTS.audio = null; }
   if ("speechSynthesis" in window) speechSynthesis.cancel();
-  clearHi(); TTS.state = "idle"; $("#btnPlay").textContent = "▶ 朗读"; TTS.reqId++;
+  clearHi(); clearSentenceHi();
+  $$(".rd-para-repeat.active").forEach(b => b.classList.remove("active"));
+  TTS.state = "idle"; TTS.sentIdx = 0; TTS.curSentence = null; TTS.repeatPid = -1;
+  $("#btnPlay").textContent = "▶ 朗读"; TTS.reqId++;
 }
 
 /* 单词发音（优先 Edge TTS） */
@@ -1477,6 +1645,8 @@ function bind() {
 
   // 文章点词 / 批注
   $("#article").addEventListener("click", (e) => {
+    const rep = e.target.closest(".rd-para-repeat");
+    if (rep) { e.stopPropagation(); toggleParaRepeat(parseInt(rep.dataset.pi, 10), rep); return; }
     const w = e.target.closest(".w");
     if (w) { e.stopPropagation(); const r = w.getBoundingClientRect(); openWordPop(w.dataset.w, r.left + r.width / 2, r.top, w.textContent); return; }
     const mk = e.target.closest(".rd-anno");
