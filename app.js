@@ -573,7 +573,7 @@ function estKcal(type, durationMin, weight) {
 }
 
 /* ---------- 导航 ---------- */
-const MODULE_TITLES = { fitness: "运动健身", nutrition: "饮食营养", dashboard: "数据看板", resources: "外部资源库", goals: "目标与提醒", trackers: "上次记录", english: "英语学习", pantry: "食物入库", watermark: "图片去水印", backup: "备份同步" };
+const MODULE_TITLES = { fitness: "运动健身", nutrition: "饮食营养", dashboard: "数据看板", resources: "外部资源库", goals: "目标与提醒", trackers: "上次记录", english: "英语学习", pantry: "食物入库", watermark: "图片去水印", backup: "备份同步", reading: "英语精读" };
 let currentModule = "fitness";
 function renderCurrent() {
   if (currentModule === "fitness") renderFitness();
@@ -600,7 +600,6 @@ function renderModule(m) {
   }
 }
 function switchModule(m) {
-  if (m === "reading") { window.location.href = "reading.html"; return; }
   if (m === "overtime") { window.location.href = "overtime.html"; return; }
   currentModule = m;
   $$(".nav-item").forEach(x => x.classList.remove("active"));
