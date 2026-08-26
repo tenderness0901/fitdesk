@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FitDesk · 健身工作台</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<meta name="theme-color" content="#ff6b35" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FitDesk" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-512.png" />
+<link rel="stylesheet" href="styles.css?v=2026082418" />
+<script>
+(function(){
+  window._errs = [];
+  function showErr(msg){
+    window._errs.push(msg);
+    var box = document.getElementById('__errbox');
+    if (!box) return;
+    box.style.display = 'block';
+    var p = document.createElement('div');
+    p.style.cssText = 'font-size:12px;line-height:1.4;border-bottom:1px solid rgba(255,255,255,.2);padding:4px 0;';
+    p.textContent = msg;
+    box.appendChild(p);
+  }
+  window.onerror = function(msg, url, line, col, err){ showErr('JS错误: ' + msg + ' @' + line + ':' + (col||0)); };
+  window.addEventListener('unhandledrejection', function(e){ showErr('Promise错误: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason))); });
+})();
+</script>
+</head>
+<body>
+<div id="__errbox" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#ff4d4f;color:#fff;padding:10px 14px;font-size:13px;max-height:40vh;overflow:auto;">
+  <div style="font-weight:700;margin-bottom:6px;">FitDesk 运行出错，请截图给我</div>
+</div>
+<div class="app">
+  <!-- 侧边导航 -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">💪</div>
+      <div class="brand-text">
+        <div class="brand-name">FitDesk</div>
+        <div class="brand-sub">健身工作台</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-module="fitness"><span class="nav-ico">🏃</span>运动健身</button>
+      <button class="nav-item" data-module="nutrition"><span class="nav-ico">🍱</span>饮食营养</button>
+      <button class="nav-item" data-module="dashboard"><span class="nav-ico">📊</span>数据看板</button>
+      <button class="nav-item" data-module="resources"><span class="nav-ico">🎬</span>外部资源库</button>
+      <button class="nav-item" data-module="goals"><span class="nav-ico">🎯</span>目标与提醒</button>
+      <button class="nav-item" data-module="trackers"><span class="nav-ico">🕒</span>上次记录</button>
+      <button class="nav-item" data-module="english"><span class="nav-ico">🔤</span>英语学习</button>
+      <button class="nav-item" data-module="reading"><span class="nav-ico">📖</span>英语精读</button>
+      <button class="nav-item" data-module="pantry"><span class="nav-ico">🥫</span>食物入库</button>
+      <button class="nav-item" data-module="watermark"><span class="nav-ico">🧽</span>图片去水印</button>
+      <button class="nav-item" data-module="overtime"><span class="nav-ico">⏰</span>加班台账</button>
+      <button class="nav-item" data-module="backup"><span class="nav-ico">☁️</span>备份同步</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="stat-chip" id="chipBmi">BMI --</div>
+      <div class="stat-chip" id="chipTdee">TDEE --</div>
+    </div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-title" id="moduleTitle">运动健身</div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="btnProfile">👤 个人档案</button>
+        <button class="btn ghost" id="btnExport">⬇ 导出数据</button>
+        <button class="btn ghost danger" id="btnReset">♻ 清空</button>
+        <button class="btn ghost" id="btnHardRefresh" title="清缓存并刷新">🔄 刷新缓存</button>
+        <button class="btn ghost" id="btnCopyUrl" title="复制本页公网链接">📋 复制链接</button>
+      </div>
+  </header>
+
+  <!-- 手机端常用快捷入口（≤600px 显示，桌面端隐藏） -->
+  <div class="quick-bar" id="quickBar">
+    <button class="quick-btn" data-module="fitness"><span class="qb-ico">🏃</span><span class="qb-txt">运动</span></button>
+    <button class="quick-btn" data-module="nutrition"><span class="qb-ico">🍱</span><span class="qb-txt">饮食</span></button>
+    <button class="quick-btn" data-module="trackers"><span class="qb-ico">🕒</span><span class="qb-txt">上次记录</span></button>
+    <button class="quick-btn" data-module="pantry"><span class="qb-ico">🥫</span><span class="qb-txt">食物入库</span></button>
+  </div>
+
+  <!-- 运动健身（含子模块：把杆 / 18天体态 / 游泳 / 健身 / 舞蹈设备） -->
+    <section class="module active" id="m-fitness">
+      <div class="subnav" id="fitSubnav"></div>
+      <div id="fitBody"></div>
+    </section>
+
+    <!-- 饮食营养 -->
+    <section class="module" id="m-nutrition">
+      <div class="grid-3 compact nut-stats" id="nutStats">
+        <div class="card stat">
+          <div class="stat-label">今日摄入</div>
+          <div class="stat-value"><span id="nutTodayKcal">0</span><small>kcal</small></div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">目标热量</div>
+          <div class="stat-value"><span id="nutTargetKcal">--</span><small>kcal</small></div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">缺口 / 盈余</div>
+          <div class="stat-value"><span id="nutBalance">--</span><small>kcal</small></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>添加饮食</h3>
+          <select id="nutGoalSel" class="mini">
+            <option value="cut">减脂 (-500)</option>
+            <option value="maintain">维持 (0)</option>
+            <option value="bulk">增肌 (+400)</option>
+          </select>
+        </div>
+        <form id="foodForm" class="form">
+          <div class="row-2">
+            <label>日期 <input type="date" id="foodDate" required /></label>
+            <label>餐次
+              <select id="foodMeal">
+                <option value="早餐">早餐</option>
+                <option value="午餐">午餐</option>
+                <option value="晚餐">晚餐</option>
+                <option value="加餐">加餐</option>
+              </select>
+            </label>
+          </div>
+          <label>食物名称
+            <input type="text" id="foodName" placeholder="如：鸡胸肉 150g" required />
+          </label>
+          <div class="row-4">
+            <label>热量(kcal)<input type="number" id="foodKcal" min="0" required /></label>
+            <label>蛋白(g)<input type="number" id="foodP" min="0" value="0" /></label>
+            <label>碳水(g)<input type="number" id="foodC" min="0" value="0" /></label>
+            <label>脂肪(g)<input type="number" id="foodF" min="0" value="0" /></label>
+          </div>
+          <button type="submit" class="btn primary">保存饮食</button>
+        </form>
+        <div class="macro-bars" id="macroBars"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>今日饮食明细</h3></div>
+        <div class="list" id="foodList"></div>
+      </div>
+
+      <!-- 抗炎一周菜单 -->
+      <div class="card" id="antiCard">
+        <div class="card-head">
+          <h3>🥗 抗炎一周菜单</h3>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="mini" id="antiWeek"></span>
+            <button class="btn primary mini" id="antiRefresh">🔄 刷新菜单</button>
+          </div>
+        </div>
+        <div id="antiBody"></div>
+      </div>
+    </section>
+
+    <!-- 数据看板 -->
+    <section class="module" id="m-dashboard">
+      <div class="grid-4" id="kpiCards"></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>体重趋势</h3></div>
+          <div class="chart-wrap"><canvas id="chartWeight"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>每周卡路里消耗</h3></div>
+          <div class="chart-wrap"><canvas id="chartWeek"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>近 30 天打卡</h3></div>
+        <div class="chart-wrap"><canvas id="chartCheckin"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 外部资源库 -->
+    <section class="module" id="m-resources">
+      <div class="card">
+        <div class="card-head">
+          <h3>添加资源</h3>
+        </div>
+        <form id="resForm" class="form">
+          <div class="row-2">
+            <label>名称 <input type="text" id="resName" placeholder="如：跟练·帕梅拉 20min" required /></label>
+            <label>类型
+              <select id="resType">
+                <option value="bilibili">B站视频</option>
+                <option value="netdisk">百度网盘</option>
+                <option value="other">其他链接</option>
+              </select>
+            </label>
+          </div>
+          <label>链接(URL)
+            <input type="url" id="resUrl" placeholder="https://..." required />
+          </label>
+          <label>标签
+            <input type="text" id="resTag" placeholder="如：有氧 / 拉伸 / 教学" />
+          </label>
+          <button type="submit" class="btn primary">添加资源</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>我的资源</h3>
+          <input type="text" id="resSearch" class="mini" placeholder="搜索名称/标签" />
+        </div>
+        <div class="res-grid" id="resGrid"></div>
+      </div>
+    </section>
+
+    <!-- 目标与提醒 -->
+    <section class="module" id="m-goals">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>身体数据测算</h3></div>
+          <form id="profileForm" class="form">
+            <div class="row-2">
+              <label>性别
+                <select id="pSex"><option value="M">男</option><option value="F">女</option></select>
+              </label>
+              <label>年龄 <input type="number" id="pAge" min="10" max="100" value="28" /></label>
+            </div>
+            <div class="row-2">
+              <label>身高(cm) <input type="number" id="pHeight" min="120" max="230" value="170" /></label>
+              <label>体重(kg) <input type="number" id="pWeight" min="30" max="250" value="65" /></label>
+            </div>
+            <label>活动量
+              <select id="pActivity">
+                <option value="1">久坐(1.2)</option>
+                <option value="2">轻度(1-3次/周, 1.375)</option>
+                <option value="3">中度(3-5次/周, 1.55)</option>
+                <option value="4">高度(6-7次/周, 1.725)</option>
+                <option value="5">极高(2次/天, 1.9)</option>
+              </select>
+            </label>
+            <button type="submit" class="btn primary">保存并测算</button>
+          </form>
+          <div class="calc-out" id="calcOut"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>体重记录</h3></div>
+          <form id="weightForm" class="form row-2">
+            <label>日期 <input type="date" id="wDate" required /></label>
+            <label>体重(kg) <input type="number" id="wVal" min="30" max="250" step="0.1" required /></label>
+            <button type="submit" class="btn primary" style="grid-column:1/-1">记录体重</button>
+          </form>
+          <div class="list" id="weightList"></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>我的目标</h3>
+            <button class="btn primary sm" id="btnAddGoal">＋ 新目标</button>
+          </div>
+          <div class="goals" id="goalList"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>提醒清单</h3>
+            <button class="btn primary sm" id="btnAddRemind">＋ 新提醒</button>
+          </div>
+          <p class="hint">本地提醒：仅在本页面打开时生效，关闭后不会推送。需要真正的定时推送可后续接后端。</p>
+          <div class="list" id="remindList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 上次记录 -->
+    <section class="module" id="m-trackers">
+      <div class="card">
+        <div class="card-head"><h3>添加追踪项</h3></div>
+        <form id="trackForm" class="form row-2">
+          <label>名称 <input type="text" id="trackName" placeholder="如：吃维生素 / 拖地 / 浇花" required /></label>
+          <label>建议间隔(天,可选) <input type="number" id="trackInterval" min="1" placeholder="每天=1，留空仅记录" /></label>
+          <button type="submit" class="btn primary" style="grid-column:1/-1">添加追踪项</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>追踪列表（「记一次」记现在；选日期可补记；「取消上次」可撤回）</h3></div>
+        <div class="list" id="trackList"></div>
+      </div>
+    </section>
+
+    <!-- 英语学习 -->
+    <section class="module" id="m-english">
+      <div class="card">
+        <div class="card-head"><h3>每日一句</h3></div>
+        <div id="dailySentence" class="daily"></div>
+      </div>
+      <div class="card w18-card" id="w18Area">
+        <div class="card-head">
+          <h3>📚 1800 高频单词</h3>
+          <span class="badge" id="w18Progress">0/0</span>
+        </div>
+        <div class="w18-stat" id="w18Stat"></div>
+        <div class="w18-actions">
+          <button class="btn primary" id="w18Study">▶ 开始今日学习</button>
+          <button class="btn" id="w18ReviewMode">↻ 仅复习</button>
+        </div>
+        <div class="w18-filters">
+          <select id="w18Level" class="mini">
+            <option value="all">全部级别</option>
+            <option value="基础">基础</option>
+            <option value="核心">核心</option>
+            <option value="进阶">进阶</option>
+          </select>
+          <input id="w18Search" class="mini" type="search" placeholder="搜索单词 / 释义" />
+        </div>
+        <div id="w18CardArea"></div>
+        <div id="w18Browse" class="w18-browse"></div>
+        <p class="hint">数据来自《1800高频单词表》。🔊 可朗读单词（英文）与释义（中文）；复习按记忆曲线自动排期。</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>生词本</h3></div>
+          <form id="wordForm" class="form">
+            <label>英文单词 <input type="text" id="wEn" placeholder="如：resilient" required /></label>
+            <label>中文释义 <input type="text" id="wZh" placeholder="如：有韧性的；能复原的" required /></label>
+            <button type="submit" class="btn primary">添加单词</button>
+          </form>
+          <div class="list" id="wordList"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>记忆卡</h3><button class="btn primary sm" id="btnStudy">开始背诵</button></div>
+          <div id="studyArea"><div class="empty">点「开始背诵」抽一张生词卡。</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 食物入库（升级版：保质期互斥、编辑、消耗、预警、筛选） -->
+    <section class="module" id="m-pantry">
+      <div class="card">
+        <div class="card-head"><h3>🥫 食品入库</h3></div>
+        <form id="pantryForm" class="form pantry-form">
+          <input type="hidden" id="pId" />
+          <label>食品名称 <input type="text" id="pName" placeholder="如：牛奶 / 鸡蛋 / 西红柿" required /></label>
+          <div class="row-2">
+            <label>数量 <input type="number" id="pQtyNum" min="0" step="0.01" placeholder="如 2" required /></label>
+            <label>单位
+              <input type="text" id="pQtyUnit" list="unitList" placeholder="如 盒 / g / 袋" required />
+              <datalist id="unitList">
+                <option value="g"></option><option value="kg"></option><option value="份"></option>
+                <option value="袋"></option><option value="盒"></option><option value="瓶"></option><option value="包"></option>
+              </datalist>
+            </label>
+          </div>
+          <div class="row-2">
+            <label>购买日期 <input type="date" id="pBuy" required /></label>
+            <label>储存位置
+              <input type="text" id="pStorage" list="storageList" placeholder="如 冷藏" />
+              <datalist id="storageList">
+                <option value="常温"></option><option value="冷藏"></option><option value="冷冻"></option><option value="储物柜"></option>
+              </datalist>
+            </label>
+          </div>
+          <label>食材分类
+            <input type="text" id="pCategory" list="categoryList" placeholder="如 生鲜肉类 / 蔬菜" />
+            <datalist id="categoryList">
+              <option value="生鲜肉类"></option><option value="水产"></option><option value="蔬菜"></option>
+              <option value="干货"></option><option value="调味品"></option><option value="零食"></option><option value="速食"></option>
+            </datalist>
+          </label>
+          <div class="pantry-exp-mode">
+            <div class="pe-label">保质期录入方式</div>
+            <label class="radio"><input type="radio" name="pMode" value="shelf" id="pModeShelf" checked /> 按保质期天数</label>
+            <label class="radio"><input type="radio" name="pMode" value="date" id="pModeDate" /> 直接填到期日期</label>
+          </div>
+          <div class="row-2">
+            <label id="pShelfLabel">保质期(天) <input type="number" id="pShelf" min="1" step="1" placeholder="如 7" /></label>
+            <label id="pExpLabel" class="disabled">到期日期 <input type="date" id="pExp" disabled /></label>
+          </div>
+          <label>备注 <input type="text" id="pNote" placeholder="品牌、购买渠道、特殊储存要求等" /></label>
+          <div id="pError" class="form-error" style="display:none"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary" id="pSubmit">入库</button>
+            <button type="button" class="btn" id="pCancelEdit" style="display:none">取消编辑</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card pantry-stats" id="pantryStats"></div>
+
+      <div class="card">
+        <div class="card-head"><h3>库存与到期提醒</h3></div>
+        <div class="pantry-toolbar">
+          <input type="text" id="pSearch" placeholder="🔍 搜索食品名称" />
+          <select id="pSort">
+            <option value="exp-asc">到期时间升序</option>
+            <option value="add-desc">入库时间倒序</option>
+            <option value="name">名称</option>
+          </select>
+          <select id="pFilterStorage">
+            <option value="">全部位置</option>
+          </select>
+          <select id="pFilterCategory">
+            <option value="">全部分类</option>
+          </select>
+          <select id="pFilterStatus">
+            <option value="">全部状态</option>
+            <option value="ok">正常</option>
+            <option value="warn">临期</option>
+            <option value="danger">高危</option>
+            <option value="over">已过期</option>
+          </select>
+        </div>
+        <div class="list" id="pantryList"></div>
+      </div>
+    </section>
+
+    <!-- 消耗出库弹窗 -->
+    <div class="modal" id="consumeModal">
+      <div class="modal-box">
+        <div class="modal-head"><h3>消耗出库</h3><button class="modal-close" data-close="#consumeModal">×</button></div>
+        <div class="modal-body">
+          <p id="cInfo" class="hint"></p>
+          <label>消耗数量 <input type="number" id="cQty" min="0.01" step="0.01" /></label>
+          <label>备注（可选）<input type="text" id="cNote" placeholder="如 做晚饭用" /></label>
+          <div id="cError" class="form-error" style="display:none"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn primary" id="btnConsumePart">部分消耗</button>
+          <button class="btn" id="btnConsumeAll">全部消耗</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图片去水印 -->
+    <section class="module" id="m-watermark">
+      <div class="card">
+        <div class="card-head"><h3>图片去水印（本地处理）</h3></div>
+        <p class="hint">上传图片后，用鼠标在水印区域涂抹，点「去除水印」即可。处理全程在本地浏览器完成，不上传服务器，无需安装/加载外部引擎。</p>
+        <input type="file" id="wmFile" accept="image/*" />
+        <div class="wm-area"><canvas id="wmCanvas"></canvas></div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn" id="wmBrush">画笔：开</button>
+          <button class="btn" id="wmClear">清除涂抹</button>
+          <button class="btn primary" id="wmRemove">去除水印</button>
+          <button class="btn" id="wmDownload">下载结果</button>
+        </div>
+        <div id="wmStatus" class="hint"></div>
+      </div>
+    </section>
+
+    <!-- 备份同步 -->
+    <section class="module" id="m-backup">
+      <div class="card">
+        <div class="card-head"><h3>备份与同步</h3></div>
+        <p class="hint">当前数据存在本机浏览器（localStorage）。上方已内置 GitHub 自动云同步；本模块用于「下载备份 / 从文件恢复」在手机与电脑间手动搬运，或导出本地副本防丢。</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" id="bkExport">⬇ 下载完整备份</button>
+          <button class="btn" id="bkCopy">📋 复制备份文本</button>
+          <label class="btn">⬆ 从文件恢复<input type="file" id="bkImport" accept="application/json" hidden /></label>
+          <button class="btn" id="bkPaste">📥 从文本恢复</button>
+        </div>
+        <div id="bkStatus" class="hint"></div>
+        <div id="bkLast"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>☁️ 云同步设置（GitHub · 完全免费 · 多端实时同步）</h3></div>
+        <p class="hint">填入 GitHub 私有仓库 <code>fitdesk-sync</code> 和 Token，开启后电脑/手机改动会自动互相同步。GitHub 免费账号私有仓库长期免费，无 6 个月限制。Token 只保存在本机浏览器，不会上传给任何第三方。</p>
+        <div class="form">
+          <label>GitHub 用户名
+            <input type="text" id="syncOwner" placeholder="如 tenderness0901" />
+          </label>
+          <label>仓库名
+            <input type="text" id="syncRepo" value="fitdesk-sync" placeholder="fitdesk-sync" />
+          </label>
+          <label>Personal Access Token
+            <input type="password" id="syncToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+          </label>
+          <label>同步口令（多端保持一致，用于隔离数据）
+            <input type="text" id="syncPass" placeholder="自定一个口令，如 myfit2026" />
+          </label>
+          <div class="row-2" style="align-items:center">
+            <label style="display:flex;gap:8px;align-items:center;font-weight:600">
+              <input type="checkbox" id="syncAuto" /> 开启自动同步
+            </label>
+            <div style="display:flex;gap:8px">
+              <button class="btn primary" id="syncSave">保存设置</button>
+              <button class="btn" id="syncNow">立即同步</button>
+            </div>
+          </div>
+        </div>
+        <div id="syncStatus" class="hint"></div>
+      </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 个人档案弹窗（顶栏复用） -->
+<div class="modal" id="profileModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3>个人档案 / 身体测算</h3><button class="x" data-close>✕</button></div>
+    <form id="profileForm2" class="form">
+      <div class="row-2">
+        <label>性别 <select id="pSex2"><option value="M">男</option><option value="F">女</option></select></label>
+        <label>年龄 <input type="number" id="pAge2" min="10" max="100" value="28" /></label>
+      </div>
+      <div class="row-2">
+        <label>身高(cm) <input type="number" id="pH2" min="120" max="230" value="170" /></label>
+        <label>体重(kg) <input type="number" id="pW2" min="30" max="250" value="65" /></label>
+      </div>
+      <label>活动量
+        <select id="pAct2">
+          <option value="1">久坐(1.2)</option>
+          <option value="2">轻度(1-3次/周, 1.375)</option>
+          <option value="3">中度(3-5次/周, 1.55)</option>
+          <option value="4">高度(6-7次/周, 1.725)</option>
+          <option value="5">极高(2次/天, 1.9)</option>
+        </select>
+      </label>
+      <button type="submit" class="btn primary">保存并测算</button>
+    </form>
+    <div class="calc-out" id="calcOut2"></div>
+  </div>
+</div>
+
+<!-- 体态训练日详情弹窗 -->
+<div class="modal" id="postureDayModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head"><h3 id="postureDayTitle">Day 1</h3><button class="x" data-close>✕</button></div>
+    <div id="postureDayBody"></div>
+  </div>
+</div>
+
+<!-- 体态训练视频弹窗（百度网盘） -->
+<div class="modal" id="postureVideoModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="postureVideoTitle">训练视频</h3><button class="x" data-close>✕</button></div>
+    <div id="postureVideoBody"></div>
+  </div>
+</div>
+
+<!-- 通用目标/提醒弹窗 -->
+<div class="modal" id="goalModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="goalModalTitle">新目标</h3><button class="x" data-close>✕</button></div>
+    <form id="goalForm" class="form">
+      <label>目标标题 <input type="text" id="gTitle" placeholder="如：3个月减脂 5kg" required /></label>
+      <div class="row-2">
+        <label>类型
+          <select id="gType">
+            <option value="weight">减重(kg)</option>
+            <option value="checkin">每周打卡(次)</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+        <label>目标值 <input type="number" id="gTarget" step="0.1" required /></label>
+      </div>
+      <label>当前进度值 <input type="number" id="gCurrent" step="0.1" value="0" /></label>
+      <label>截止日期 <input type="date" id="gDeadline" /></label>
+      <button type="submit" class="btn primary">保存目标</button>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 手机端底部 Tab 栏（≤600px 显示，桌面端隐藏）：展开全部模块，不再折叠进「更多」 -->
+<nav class="bottom-tab" id="bottomTab">
+  <button class="tab-item" data-module="dashboard"><span class="tab-ico">📊</span><span class="tab-label">数据</span></button>
+  <button class="tab-item" data-module="resources"><span class="tab-ico">🎬</span><span class="tab-label">资源</span></button>
+  <button class="tab-item" data-module="goals"><span class="tab-ico">🎯</span><span class="tab-label">目标</span></button>
+  <button class="tab-item" data-module="english"><span class="tab-ico">🔤</span><span class="tab-label">英语</span></button>
+  <button class="tab-item" data-module="watermark"><span class="tab-ico">🧽</span><span class="tab-label">水印</span></button>
+  <button class="tab-item" data-module="reading"><span class="tab-ico">📖</span><span class="tab-label">精读</span></button>
+  <button class="tab-item" data-module="overtime"><span class="tab-ico">⏰</span><span class="tab-label">加班</span></button>
+  <button class="tab-item" data-module="backup"><span class="tab-ico">☁️</span><span class="tab-label">备份</span></button>
+</nav>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="words1800.js?v=2026081823"></script>
+<script src="app.js?v=2026082418"></script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      const url = new URL(window.location.href);
+      if (navigator.serviceWorker.controller && !url.searchParams.has('sw-purged')) {
+        // 被旧 SW 控制，先 unregister 再刷新，确保拿到最新版本（只执行一次）
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }).then(function () {
+          url.searchParams.set('sw-purged', '1');
+          window.location.replace(url.toString());
+        }).catch(function (e) {
+          console.log('SW 清理失败：', e);
+        });
+      } else {
+        navigator.serviceWorker.register('sw.js?v=2026082418').catch(function (e) {
+          console.log('SW 注册失败（不影响使用）：', e);
+        });
+        if (url.searchParams.has('sw-purged')) {
+          url.searchParams.delete('sw-purged');
+          window.history.replaceState({}, '', url.toString());
+        }
+      }
+    });
+  }
+
+  // 显式「刷新缓存」按钮：unregister SW + 清空 caches + 强制刷新
+  document.getElementById('btnHardRefresh').addEventListener('click', async function () {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (e) {
+      console.log('清缓存失败：', e);
+    }
+    const u = new URL(window.location.href);
+    u.searchParams.set('nocache', Date.now());
+    u.searchParams.delete('sw-purged');
+    window.location.href = u.toString();
+  });
+
+  // 「复制本页链接」按钮：复制当前公网 URL，方便发到手机打开
+  document.getElementById('btnCopyUrl').addEventListener('click', function () {
+    const u = window.location.href;
+    const done = () => toast('链接已复制，去手机粘贴打开 ✓');
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = u; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); }
+      catch (e) { window.prompt('复制下面的链接到手机打开：', u); }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(u).then(done).catch(fallback);
+    } else { fallback(); }
+  });
+</script>
+</body>
+</html>

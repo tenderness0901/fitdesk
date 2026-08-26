@@ -1,0 +1,10 @@
+# 不部署到 GitHub Pages 的内容
+sync-server/
+*.md
+manifest.webmanifest
+.workbuddy/
+.DS_Store
+
+# 本地回归测试脚本（非前端运行所需）
+test-migrate.js
+test-loadroute.js

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>英语精读 · FitDesk</title>
+<meta name="theme-color" content="#ff6b35" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<link rel="manifest" href="manifest.json" />
+<link rel="stylesheet" href="styles.css?v=2026082418" />
+<link rel="stylesheet" href="reading.css?v=2026082418" />
+<script>
+(function(){
+  window._errs = [];
+  function showErr(msg){
+    window._errs.push(msg);
+    var box = document.getElementById('__errbox');
+    if (!box) return;
+    box.style.display = 'block';
+    var p = document.createElement('div');
+    p.style.cssText = 'font-size:12px;line-height:1.4;border-bottom:1px solid rgba(255,255,255,.2);padding:4px 0;';
+    p.textContent = msg;
+    box.appendChild(p);
+  }
+  window.onerror = function(msg, url, line, col){ showErr('JS错误: ' + msg + ' @' + line + ':' + (col||0)); };
+  window.addEventListener('unhandledrejection', function(e){ showErr('Promise错误: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason))); });
+})();
+</script>
+</head>
+<body>
+<div id="__errbox" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#ff4d4f;color:#fff;padding:10px 14px;font-size:13px;max-height:40vh;overflow:auto;">
+  <div style="font-weight:700;margin-bottom:6px;">英语精读 运行出错，请截图给我</div>
+</div>
+
+<!-- 顶栏 -->
+<header class="rd-topbar">
+  <a class="rd-back" href="index.html" title="返回工作台首页">← 返回工作台</a>
+  <div class="rd-title">📖 英语精读</div>
+  <div class="rd-actions">
+    <button class="btn ghost sm" id="btnLib">📚 文库</button>
+    <button class="btn ghost sm" id="btnVocab">⭐ 生词本</button>
+    <button class="btn ghost sm" id="btnCheckin">📅 打卡</button>
+    <button class="btn ghost sm" id="btnSettings">⚙</button>
+  </div>
+</header>
+
+<div class="rd-wrap">
+
+  <!-- ===================== 首页 / 文库视图 ===================== -->
+  <section id="viewHome" class="rd-view active">
+
+    <!-- 导入卡片 -->
+    <div class="card rd-import">
+      <div class="card-head"><h3>➕ 导入英文文章</h3></div>
+      <div class="rd-tabs">
+        <button class="subnav-btn active" data-tab="paste">✏️ 粘贴文本</button>
+        <button class="subnav-btn" data-tab="ocr">📷 图片 OCR</button>
+      </div>
+
+      <div class="rd-tabpane" id="tabPaste">
+        <textarea id="pasteArea" class="rd-textarea" placeholder="在此粘贴 / 输入英文文章，点击「开始精读」即可进入学习页…"></textarea>
+        <div class="rd-import-actions">
+          <button class="btn primary" id="btnStartRead">▶ 开始精读</button>
+          <span class="hint-inline" id="pasteCount"></span>
+        </div>
+      </div>
+
+      <div class="rd-tabpane" id="tabOcr" style="display:none">
+        <input type="file" id="ocrFile" accept="image/*" />
+        <p class="hint">上传含英文的图片，自动识别文字（首次需联网加载识别引擎，约几 MB）。识别后先进入「编辑预览」，可校对错字、调整分段后再进入精读阅读页。</p>
+        <div id="ocrStatus" class="hint"></div>
+        <textarea id="ocrResult" class="rd-textarea" placeholder="识别结果将显示在这里，可手动修改后导入…" style="display:none"></textarea>
+        <div class="rd-import-actions" id="ocrActions" style="display:none">
+          <button class="btn primary" id="btnOcrImport">✓ 进入编辑预览</button>
+          <button class="btn" id="btnOcrRetry" style="display:none">🔄 重新识别</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快捷统计 -->
+    <div class="grid-3 compact rd-stats" id="homeStats"></div>
+
+    <!-- 文库 -->
+    <div class="card">
+      <div class="card-head">
+        <h3>📚 我的文库</h3>
+        <input type="text" id="libSearch" class="mini" placeholder="搜索标题 / 标签 / 内容" />
+      </div>
+      <div class="rd-lib-grid" id="libGrid"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 精读视图 ===================== -->
+  <section id="viewReader" class="rd-view">
+    <div class="rd-reader-bar">
+      <button class="btn ghost sm" id="btnBackHome">← 文库</button>
+      <div class="rd-reader-meta">
+        <input type="text" id="artTitle" class="rd-title-input" placeholder="文章标题" />
+      </div>
+      <div class="rd-mode-toggle">
+        <button class="btn sm mode-btn active" id="btnModeRead">📖 阅读</button>
+        <button class="btn sm mode-btn" id="btnModeEdit">✏️ 编辑</button>
+      </div>
+      <button class="btn primary sm" id="btnSaveArticle">💾 保存</button>
+    </div>
+
+    <!-- 朗读控制条 -->
+    <div class="card rd-tts" id="ttsCard">
+      <div class="rd-tts-row">
+        <button class="btn primary sm" id="btnPlay">▶ 朗读</button>
+        <button class="btn sm" id="btnStop">⏹ 停止</button>
+        <button class="btn sm" id="btnReadSel">🗣 读选中</button>
+        <label class="rd-speed">语速
+          <input type="range" id="rateRange" min="0.75" max="1.5" step="0.05" value="1" />
+          <span id="rateVal">1.0x</span>
+        </label>
+        <label class="rd-pitch">音调
+          <input type="range" id="pitchRange" min="0.5" max="1.5" step="0.1" value="1" />
+          <span id="pitchVal">1.0</span>
+        </label>
+        <label class="rd-accent">口音
+          <select id="accentSel" class="mini">
+            <option value="en-US">美音</option>
+            <option value="en-GB">英音</option>
+          </select>
+        </label>
+        <label class="rd-voice">音色
+          <select id="voiceSel" class="mini"></select>
+        </label>
+      </div>
+      <div class="rd-tts-engine hint" id="ttsEngine">🔊 引擎：Edge TTS 自然语音（自动回退内置朗读）</div>
+      <div class="rd-tts-support hint" id="ttsSupportHint" style="display:none"></div>
+    </div>
+
+    <!-- 编辑模式卡片（校对 / 调整分段） -->
+    <div class="card rd-edit-card" id="editCard" style="display:none">
+      <div class="card-head">
+        <h3>✏️ 编辑原文（校对 / 调整分段）</h3>
+      </div>
+      <p class="hint">可增删、修改文字以修正 OCR 识别错误；按回车换行即产生新段落。点「📐 手动分段」可在光标处直接拆分段落。确认无误后点「保存并进入阅读」。</p>
+      <textarea id="editArea" class="rd-textarea" style="min-height:340px" placeholder="在此修改原文…"></textarea>
+      <div class="rd-edit-bar">
+        <button class="btn sm" id="btnSplitPara">📐 手动分段</button>
+        <button class="btn primary sm" id="btnSaveEdit">✓ 保存并进入阅读</button>
+        <button class="btn sm" id="btnCancelEdit">取消</button>
+      </div>
+    </div>
+
+    <!-- 文章主体 -->
+    <div class="card rd-article-card" id="articleCard">
+      <div class="rd-article" id="article"></div>
+      <div class="rd-anno-tip hint">提示：选中文中任意句子可「🖍 划线批注」；点击蓝色单词可查词。</div>
+    </div>
+
+    <!-- 翻译与理解 -->
+    <div class="card">
+      <div class="card-head">
+        <h3>🌐 翻译与理解</h3>
+        <button class="btn sm" id="btnToggleTr">隐藏译文</button>
+      </div>
+      <div id="trSummary" class="rd-tr-summary"></div>
+      <div id="trPara" class="rd-tr-para"></div>
+      <div id="trAI" class="rd-tr-ai"></div>
+    </div>
+
+    <!-- 标签与笔记 -->
+    <div class="card">
+      <div class="card-head"><h3>🏷️ 标签与笔记</h3></div>
+      <div class="form">
+        <label>素材标签（逗号分隔）<input type="text" id="artTags" placeholder="如：科技, TED, 四级" /></label>
+        <label>个人笔记<textarea id="artNotes" class="rd-textarea" placeholder="写下你的理解、疑问或摘抄…"></textarea></label>
+      </div>
+    </div>
+
+    <!-- 长难句 / 批注列表 -->
+    <div class="card">
+      <div class="card-head"><h3>✒️ 长难句与批注</h3></div>
+      <div id="annoList" class="list"></div>
+    </div>
+  </section>
+</div>
+
+<!-- ===================== 弹窗 / 浮层 ===================== -->
+
+<!-- 点词查询浮窗 -->
+<div class="rd-pop" id="wordPop" style="display:none">
+  <div class="rd-pop-head">
+    <div class="rd-pop-word" id="popWord"></div>
+    <button class="rd-pop-x" id="popClose">✕</button>
+  </div>
+  <div class="rd-pop-ph" id="popPh"></div>
+  <div class="rd-pop-pos" id="popPos"></div>
+  <div class="rd-pop-mean" id="popMean"></div>
+  <div class="rd-pop-actions">
+    <button class="btn sm" id="popSpeak">🔊 发音</button>
+    <button class="btn primary sm" id="popAddVocab">⭐ 加入生词本</button>
+  </div>
+  <div class="rd-pop-extra" id="popExtra"></div>
+</div>
+
+<!-- 选中文本批注工具条 -->
+<div class="rd-selbar" id="selBar" style="display:none">
+  <button class="btn sm" id="selAnno">🖍 划线批注</button>
+</div>
+
+<!-- 文库管理弹窗 -->
+<div class="modal" id="libModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head"><h3>📚 我的文库</h3><button class="x" data-close>✕</button></div>
+    <input type="text" id="libSearchM" class="mini" placeholder="搜索标题 / 标签 / 内容" style="width:100%;margin-bottom:10px" />
+    <div id="libListM" class="list"></div>
+  </div>
+</div>
+
+<!-- 生词本弹窗 -->
+<div class="modal" id="vocabModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head">
+      <h3>⭐ 生词本 <span class="badge" id="vocabDue">待复习 0</span></h3>
+      <button class="x" data-close>✕</button>
+    </div>
+    <div class="rd-vocab-bar">
+      <button class="btn primary sm" id="btnReview">🎯 开始自测复习</button>
+      <input type="text" id="vocabSearch" class="mini" placeholder="搜索单词" />
+    </div>
+    <div id="vocabList" class="list"></div>
+  </div>
+</div>
+
+<!-- 复习自测浮窗 -->
+<div class="modal" id="reviewModal">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="reviewTitle">复习自测</h3><button class="x" data-close>✕</button></div>
+    <div id="reviewBody"></div>
+  </div>
+</div>
+
+<!-- 打卡弹窗 -->
+<div class="modal" id="checkinModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head"><h3>📅 阅读打卡</h3><button class="x" data-close>✕</button></div>
+    <div class="rd-checkin-head">
+      <div><span class="rd-streak" id="streakNum">🔥 连续 0 天</span></div>
+      <button class="btn primary sm" id="btnDoCheckin">✓ 今日打卡</button>
+    </div>
+    <div class="rd-cal" id="checkinCal"></div>
+    <div class="hint" id="checkinHint"></div>
+  </div>
+</div>
+
+<!-- 设置弹窗 -->
+<div class="modal" id="settingsModal">
+  <div class="modal-box modal-lg">
+    <div class="modal-head"><h3>⚙ 设置</h3><button class="x" data-close>✕</button></div>
+    <div class="form">
+      <div class="row-2">
+        <label>默认口音
+          <select id="setAccent" class="mini">
+            <option value="en-US">美音</option>
+            <option value="en-GB">英音</option>
+          </select>
+        </label>
+        <label>默认语速
+          <select id="setRate" class="mini">
+            <option value="0.75">0.75x</option>
+            <option value="0.9">0.9x</option>
+            <option value="1">1.0x</option>
+            <option value="1.15">1.15x</option>
+            <option value="1.3">1.3x</option>
+            <option value="1.5">1.5x</option>
+          </select>
+        </label>
+        <label>默认音调
+          <select id="setPitch" class="mini">
+            <option value="0.5">0.5（低）</option>
+            <option value="0.75">0.75</option>
+            <option value="1">1.0（正常）</option>
+            <option value="1.25">1.25</option>
+            <option value="1.5">1.5（高）</option>
+          </select>
+        </label>
+      </div>
+      <label>朗读引擎
+        <select id="setEngine" class="mini">
+          <option value="auto">自动：优先 Edge 自然语音，失败时回退内置朗读</option>
+          <option value="webspeech">强制内置朗读（最稳定，音色选项不可用）</option>
+        </select>
+      </label>
+      <p class="hint" id="engineHint">自动模式下音色下拉选择 Edge 语音；若网络受限 Edge 失败，会切换为浏览器内置朗读。</p>
+      <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
+      <div class="rd-row">
+        <label class="rd-check"><input type="checkbox" id="useLLMForTranslation" /> 翻译也使用 LLM（更准确）</label>
+      </div>
+      <p class="hint">可选：配置兼容 OpenAI 的接口后，「全文/段落翻译、主旨总结、长难句解析」都会走你的 LLM，质量更好且不受免费翻译源限制。</p>
+      <p class="hint" style="color:var(--brand)">安全说明：API Key 仅保存在本机浏览器 localStorage 中，不会上传到任何服务器；换电脑/手机或清空浏览器数据后需重新填写。</p>
+      <label>API Base URL<input type="text" id="llmBase" placeholder="https://api.openai.com/v1" /></label>
+      <label>API Key<input type="password" id="llmKey" placeholder="sk-..." /></label>
+      <label>模型名<input type="text" id="llmModel" placeholder="gpt-4o-mini" /></label>
+      <hr style="border:none;border-top:1px dashed var(--line);margin:6px 0" />
+      <div class="rd-set-actions">
+        <button class="btn" id="btnExportData">⬇ 导出精读数据</button>
+        <button class="btn" id="btnImportData">⬆ 导入数据</button>
+        <input type="file" id="importFile" accept="application/json" hidden />
+        <button class="btn danger" id="btnClearData">🗑 清空精读数据</button>
+      </div>
+      <div id="settingsStatus" class="hint"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* Tesseract.js 多 CDN 回退加载（国内网络不稳定） */
+(function(){
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.async = true; s.crossOrigin = 'anonymous';
+      s.onload = () => resolve(true); s.onerror = () => reject(new Error(src));
+      document.head.appendChild(s);
+    });
+  }
+  window._tesseractCdns = [
+    'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+    'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js',
+    'https://cdn.bootcdn.net/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'
+  ];
+  window._loadTesseractPromise = (async function(){
+    if (window.Tesseract) return window.Tesseract;
+    let lastErr;
+    for (const src of window._tesseractCdns) {
+      try { await loadScript(src); if (window.Tesseract) return window.Tesseract; } catch (e) { lastErr = e; }
+    }
+    console.warn('Tesseract 加载失败：', lastErr && lastErr.message);
+    return null;
+  })();
+})();
+</script>
+<script src="words1800.js"></script>
+<script src="fitdesk-store.js"></script>
+<script src="reading.js?v=2026082418"></script>
+</body>
+</html>
