@@ -439,3 +439,56 @@ select.mini { padding: 5px 20px 5px 8px; }
 .text-center { text-align: center; }
 .mt-8 { margin-top: 8px; }
 .mb-8 { margin-bottom: 8px; }
+
+/* ===== 英语精读（iframe 集成进工作台框架） ===== */
+.rd-frame {
+  width: 100%;
+  min-height: calc(100vh - 160px);
+  border: none;
+  background: #fff;
+  border-radius: 12px;
+}
+@media (max-width: 768px) {
+  .rd-frame { min-height: calc(100vh - 200px); }
+}
+/* 在iframe内嵌时，隐藏阅读页自己的"返回工作台"链接（外层已有导航） */
+.embedded .rd-back { display: none; }
+
+/* 每日一句 */
+.daily {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* 饮食宏量元素条 */
+.macro-bars { display: flex; gap: 10px; margin-top: 12px; }
+.macro-bars > div { flex: 1; min-width: 0; }
+
+/* 食物库存统计 */
+.pantry-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.pantry-stats .stat { background: #f9f9f9; border-radius: 8px; padding: 10px; text-align: center; }
+.pantry-stats .stat .stat-value { font-size: 20px; }
+
+/* 身体数据测算结果 */
+.calc-out {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.calc-out b { color: #ff6b35; }
+
+/* 营养统计卡片间距 */
+.nut-stats .card { margin-bottom: 0; }
