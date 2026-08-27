@@ -310,28 +310,40 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 
 /* ===== RESPONSIVE ===== */
 @media(max-width:900px){
-  /* 强制单列堆叠，!important 确保覆盖任何更高优先级的 grid 设置 */
+  /* 强制单列堆叠 + 显式重排顺序：文章正文①、翻译②、单词本③ */
   .reading-view{
     display:grid !important;
     grid-template-columns:minmax(0,1fr) !important;
-    grid-auto-flow:row !important;
-    padding:16px !important;
-    gap:16px !important
-  }
-  .reading-view>.translate-panel,
-  .reading-view>.article-area,
-  .reading-view>.word-bank-panel{
-    width:100% !important;
-    min-width:0 !important;
-    max-width:100% !important;
-    grid-column:1 / -1 !important;
+    grid-template-rows:auto auto auto !important;
+    padding:16px !important; gap:14px !important;
     box-sizing:border-box !important
   }
-  .translate-panel{position:relative !important;top:0 !important;max-height:none !important}
+  /* 用 grid-row 显式定位每行，order 备用 */
+  .reading-view>.article-area{
+    grid-row:1 !important; grid-column:1 !important;
+    width:100% !important; min-width:0 !important; max-width:100% !important;
+    padding:18px 16px !important; min-height:240px !important;
+    box-sizing:border-box !important;
+    order:1 !important
+  }
+  .reading-view>.translate-panel{
+    grid-row:2 !important; grid-column:1 !important;
+    width:100% !important; min-width:0 !important; max-width:100% !important;
+    box-sizing:border-box !important;
+    /* 限制最高 35vh + 内部滚动，避免占满整屏把主内容挤出视口 */
+    max-height:38vh !important; overflow-y:auto !important;
+    position:relative !important; top:0 !important;
+    order:2 !important
+  }
+  .reading-view>.word-bank-panel{
+    grid-row:3 !important; grid-column:1 !important;
+    width:100% !important; min-width:0 !important; max-width:100% !important;
+    box-sizing:border-box !important;
+    max-height:32vh !important; overflow-y:auto !important;
+    order:3 !important
+  }
   .translate-blocks{max-height:none !important}
-  .word-bank-panel{width:100% !important}
-  .word-list-wrap{max-height:300px !important}
-  .article-area{padding:20px 18px !important;min-height:200px !important}
+  .word-list-wrap{max-height:200px !important}
   .exercise-content{padding:20px 18px !important}
 }
 @media(max-width:600px){
@@ -369,8 +381,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
     width:auto !important;max-width:none !important;max-height:75vh !important;
     z-index:2000 !important;border-radius:12px !important;
   }
-  .article-area{padding:16px 14px !important}
-  .article-area p{font-size:15px;line-height:1.75}
+  .reading-view>.article-area{padding:14px 12px !important;min-height:200px !important}
+  .article-area p{font-size:15px;line-height:1.7}
+  .reading-view>.translate-panel{max-height:35vh !important}
+  .reading-view>.word-bank-panel{max-height:28vh !important}
 }
 @media(max-width:380px){
   .controls .btn{padding:4px 7px !important;font-size:10px !important}
