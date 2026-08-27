@@ -155,11 +155,14 @@ img { max-width: 100%; display: block; }
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #555; }
 .form input, .form select, .form textarea {
-  padding: 8px 10px;
+  padding: 6px 8px;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
   background: #fff;
   color: #333;
+  font-size: 13px;
+  min-height: 32px;
+  box-sizing: border-box;
 }
 .form input:focus, .form select:focus, .form textarea:focus {
   outline: none;
@@ -425,13 +428,35 @@ select.mini { padding: 5px 20px 5px 8px; }
 }
 @media (max-width: 768px) {
   .sidebar { display: none; }
-  .main { margin-left: 0; }
+  .main { margin-left: 0; padding: 12px; }
   .quick-bar { display: flex; }
   .bottom-tab { display: block; }
-  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
-  .row-2, .row-3, .row-4 { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  /* 表单行：移动端尽量并排，不全部单列 */
+  .row-2 { grid-template-columns: repeat(2, 1fr); }
+  .row-3 { grid-template-columns: repeat(3, 1fr); }
+  .row-4 { grid-template-columns: repeat(2, 1fr); }
   .topbar { flex-direction: column; align-items: flex-start; }
   .topbar-actions { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  /* 全站表单框紧凑化 */
+  .form { gap: 8px; }
+  .form label { font-size: 12px; gap: 3px; }
+  .form input, .form select, .form textarea { padding: 6px 8px; font-size: 13px; min-height: 30px; }
+  /* 按钮紧凑 */
+  .btn { padding: 7px 12px; font-size: 12px; }
+  /* 卡片紧凑 */
+  .card { padding: 12px; margin-bottom: 10px; }
+  .card-head { margin-bottom: 8px; }
+  .card-head h3 { font-size: 15px; }
+  /* KPI 卡紧凑 */
+  .stat { padding: 8px 6px; }
+  .stat-value { font-size: 16px; }
+  .stat-label { font-size: 11px; margin-bottom: 2px; }
+  /* 快捷按钮 */
+  .quick-btn { padding: 6px 8px; font-size: 11px; }
+  .qb-ico { font-size: 18px; }
 }
 
 /* 通用工具 */
@@ -541,7 +566,7 @@ select.mini { padding: 5px 20px 5px 8px; }
 
 /* KPI 三列小卡 */
 .kpi-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
-@media (max-width:768px){.kpi-mini{grid-template-columns:1fr}}
+@media (max-width:768px){.kpi-mini{grid-template-columns:repeat(3,1fr);gap:6px}}
 .kpi-mini .card{margin-bottom:0}
 
 /* ============================================================
