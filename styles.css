@@ -492,3 +492,55 @@ select.mini { padding: 5px 20px 5px 8px; }
 
 /* 营养统计卡片间距 */
 .nut-stats .card { margin-bottom: 0; }
+
+/* === 芭杆周历（运动健身 · 芭杆训练日历） === */
+.week-plan{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:6px}
+.wp-dowhead{text-align:center;font-size:12px;font-weight:700;color:#6d6a61;padding:6px 0;background:#f9fafb;border-radius:6px}
+.wp-day{background:#fff;border:1px solid #e8eaed;border-radius:8px;padding:8px 6px;min-height:78px;display:flex;flex-direction:column;gap:4px;font-size:12px;position:relative;transition:all .15s}
+.wp-day.out{background:#fafafa;color:#bbb;border-color:#f0f1f3}
+.wp-day.today{border-color:#ff6b35;background:#fff7f1;box-shadow:0 0 0 2px rgba(255,107,53,.15)}
+.wp-day.rest{background:#f9f9f9}
+.wp-day.rest .wp-focus{color:#aaa}
+.wp-day.clickable{cursor:pointer}
+.wp-day.clickable:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(0,0,0,.08);border-color:#ff6b35}
+.wp-date{font-weight:700;font-size:14px;color:#333}
+.wp-day.rest .wp-date{color:#aaa}
+.wp-focus{font-size:12px;color:#555;line-height:1.3;flex:1}
+.wp-play{font-size:11px;color:#ff6b35;font-weight:700;margin-top:auto}
+.wp-day.out .wp-play{display:none}
+@media (max-width:768px){.week-plan{gap:4px}.wp-day{min-height:62px;padding:6px 3px}.wp-focus{font-size:11px}}
+
+/* === 欧阳春晓 18 天体态课表 === */
+.posture-plan{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+@media (max-width:768px){.posture-plan{grid-template-columns:repeat(3,1fr)}}
+.pp-day{background:#fff;border:1.5px solid #e8eaed;border-radius:10px;padding:8px 6px;display:flex;flex-direction:column;gap:4px;text-align:center;cursor:pointer;transition:all .15s;min-height:72px;position:relative}
+.pp-day:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(0,0,0,.08)}
+.pp-day.today{background:#fff7f1;border-color:#ff6b35;box-shadow:0 0 0 2px rgba(255,107,53,.2)}
+.pp-day.rest{background:#f5f6f8}
+.pp-day.done{background:#f6ffed;border-color:#b7eb8f}
+.pp-day.done::after{content:"✓";position:absolute;top:4px;right:6px;color:#49bd68;font-weight:800;font-size:14px}
+.pp-num{font-size:12px;font-weight:700;color:#333;display:flex;align-items:center;justify-content:center;gap:4px}
+.pp-tag{font-size:10px;background:#ff6b35;color:#fff;padding:1px 6px;border-radius:8px;font-weight:600}
+.pp-meta{font-size:11px;color:#555;line-height:1.3}
+.pp-kcal{font-size:11px;color:#ff6b35;font-weight:600}
+.pp-rest{font-size:11px;color:#aaa}
+
+/* 进度条 */
+.pp-progress{display:flex;align-items:center;gap:8px;margin:10px 0 4px}
+.pp-progress .goal{flex:1}
+.goal .g-track{background:#f0f1f3;border-radius:99px;height:10px;overflow:hidden}
+.goal .g-fill{background:linear-gradient(90deg,#ff6b35,#ff9a59);height:100%;border-radius:99px;transition:width .25s}
+
+/* 体态详情弹窗项 */
+.pd-item{background:#f9f9f9;border-radius:10px;padding:10px;margin-bottom:8px;display:flex;align-items:center;gap:10px;transition:background .15s}
+.pd-item:hover{background:#f0f0f0}
+.pd-left{flex:1;min-width:0}
+.pd-name{font-weight:600;font-size:13px;color:#333}
+.pd-meta{font-size:11px;color:#888;margin-top:2px}
+.pd-actions{display:flex;gap:6px;flex-shrink:0}
+
+/* KPI 三列小卡 */
+.kpi-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+@media (max-width:768px){.kpi-mini{grid-template-columns:1fr}}
+.kpi-mini .card{margin-bottom:0}
+

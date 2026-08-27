@@ -1,0 +1,225 @@
+/* ============================================================
+ * 加班台账 · overtime.css
+ * FitDesk 工作台 / 加班 & 加班费台账专用样式
+ * ============================================================ */
+:root {
+  --line: #e8eaed;
+  --bg: #f5f6f8;
+  --muted: #6d6a61;
+  --primary: #ff6b35;
+  --primary-50: #fff7f1;
+  --primary-100: #ffe9da;
+  --shadow-1: 0 1px 3px rgba(0,0,0,.05);
+}
+
+/* ===== 顶栏 ===== */
+.ov-topbar{
+  position:sticky;top:0;z-index:90;display:flex;align-items:center;gap:10px;
+  padding:12px 16px;background:rgba(255,255,255,.95);
+  border-bottom:1px solid var(--line);backdrop-filter:blur(6px);
+}
+.ov-back{
+  display:inline-flex;align-items:center;gap:4px;font-size:13px;color:#444;
+  text-decoration:none;padding:6px 10px;border-radius:8px;background:#f5f6f8;
+  transition:background .15s,color .15s;
+}
+.ov-back:hover{background:#fff1eb;color:var(--primary);}
+.ov-title{flex:1;font-size:18px;font-weight:700;color:#222;min-width:0;}
+.ov-actions{display:flex;gap:8px;flex-wrap:wrap;}
+
+/* ===== 主容器 ===== */
+.ov-wrap{
+  max-width:960px;margin:0 auto;padding:16px;
+}
+
+/* ===== 月份/年份选择器 ===== */
+.ov-period-sel{
+  display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+}
+.ov-period-sel .mini{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:12px;}
+
+/* ===== 月度头部 ===== */
+.ov-month-header{
+  display:flex;justify-content:space-between;align-items:center;
+  margin:8px 0 12px;padding:10px 12px;background:var(--primary-50);
+  border-radius:10px;border:1px solid var(--primary-100);
+}
+.ov-month-header > span{font-weight:700;color:#a04e1c;font-size:14px;letter-spacing:.5px;}
+
+/* ===== KPI 三列 ===== */
+.ov-kpi{
+  display:grid !important;
+  grid-template-columns:repeat(3,1fr) !important;
+  gap:10px !important;
+  margin-bottom:10px;
+}
+@media (max-width:768px){
+  .ov-kpi{grid-template-columns:1fr !important;}
+}
+.ov-stat{
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  padding:14px 12px;text-align:center;transition:transform .15s,box-shadow .15s;
+  box-shadow:var(--shadow-1);
+}
+.ov-stat:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(0,0,0,.08);}
+.ov-stat .rs-v{
+  font-size:24px;font-weight:800;color:var(--primary);line-height:1.2;
+  font-variant-numeric:tabular-nums;
+}
+.ov-stat .rs-l{font-size:12px;color:#666;margin-top:6px;font-weight:500;}
+.ov-stat .rs-sub{font-size:11px;color:#aaa;margin-top:2px;}
+
+/* KPI 下方免责声明 */
+.ov-kpi-hint{
+  text-align:center;font-size:11px;color:#a04e1c;margin-bottom:14px;
+  padding:6px 10px;background:var(--primary-50);border-radius:6px;
+  border:1px dashed #ffd4a8;
+}
+
+/* ===== 月度明细（拆分） ===== */
+.ov-salary-detail{
+  background:#f9f9f9;border-radius:10px;padding:12px 14px;margin-top:8px;
+}
+.ov-salary-detail .sd-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;
+}
+.ov-salary-detail .sd-row:last-child{border-bottom:none;}
+.ov-salary-detail .sd-row.total{
+  font-weight:700;color:var(--primary);font-size:14px;margin-top:4px;padding-top:8px;
+  border-top:1.5px solid var(--primary);border-bottom:none;
+}
+.ov-salary-detail .sd-row.deduct > span:last-child{color:#cf1322;font-weight:600;}
+
+/* ===== 分类拆分（按加班类型） ===== */
+.ov-bd-row{
+  display:grid;grid-template-columns:auto 1fr 90px 110px;
+  gap:10px;align-items:center;padding:8px 10px;margin-top:6px;
+  border-radius:8px;background:#fff;border:1px solid var(--line);font-size:13px;
+}
+.ov-bd-tag{
+  display:inline-block;padding:3px 10px;border-radius:10px;
+  font-size:12px;font-weight:600;color:#fff;white-space:nowrap;
+}
+.ov-r-tag.weekday{background:#45c7e9;}
+.ov-r-tag.restday{background:#49bd68;}
+.ov-r-tag.holiday{background:#ff6b35;}
+.ov-r-tag.compoff{background:#6c757d;}
+.ov-r-tag.free{background:#adb5bd;}
+.ov-bd-hours{font-size:12px;color:#666;white-space:nowrap;}
+.ov-bd-bar{height:8px;background:#f0f0f0;border-radius:99px;overflow:hidden;}
+.ov-bd-bar-fill{height:100%;background:linear-gradient(90deg,var(--primary),#ff9a59);border-radius:99px;transition:width .25s;}
+.ov-bd-pay{font-size:13px;font-weight:700;color:var(--primary);text-align:right;font-variant-numeric:tabular-nums;}
+@media (max-width:640px){
+  .ov-bd-row{grid-template-columns:1fr;gap:4px;}
+  .ov-bd-pay{text-align:left;}
+}
+
+/* ===== 录入预览 / 工资预览 ===== */
+.ov-calc-preview,
+.ov-sal-preview{
+  background:var(--primary-50);border:1px dashed #ffd4a8;border-radius:8px;
+  padding:10px 12px;font-size:13px;color:#a04e1c;line-height:1.6;
+}
+
+/* ===== 录入按钮组 ===== */
+.ov-form-actions{
+  display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;
+}
+
+/* ===== 月度补贴表单 ===== */
+.ov-adjust-form{display:flex;flex-direction:column;gap:12px;}
+.ov-adjust-group{
+  background:#f9f9f9;border-radius:10px;padding:12px 14px;
+}
+.ov-adjust-group h4{
+  margin:0 0 10px;font-size:14px;color:#444;font-weight:700;
+  display:flex;align-items:center;gap:6px;
+}
+.ov-adjust-group h4::before{
+  content:"";display:inline-block;width:3px;height:14px;border-radius:2px;
+  background:var(--primary);
+}
+
+/* ===== 列表筛选 / 台账列表 ===== */
+.ov-filters{display:flex;gap:8px;flex-wrap:wrap;}
+.ov-filters > *{min-width:100px;}
+.ov-list{display:flex;flex-direction:column;gap:8px;}
+.ov-empty{
+  text-align:center;color:#999;font-size:13px;padding:32px 12px;
+  background:#f9f9f9;border-radius:10px;border:1px dashed #e0e0e0;line-height:1.6;
+}
+
+/* ===== 工资实发列表项 ===== */
+.ov-salary-list{display:flex;flex-direction:column;gap:10px;}
+.ov-sal-row{
+  background:#fff;border:1px solid var(--line);border-radius:10px;
+  padding:12px 14px;display:grid;
+  grid-template-columns:auto 1fr 1fr auto;gap:10px;
+  align-items:center;font-size:13px;box-shadow:var(--shadow-1);
+  transition:transform .15s,box-shadow .15s;
+}
+.ov-sal-row:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(0,0,0,.08);}
+.ov-sal-month{
+  font-size:15px;font-weight:700;color:#a04e1c;
+  background:var(--primary-50);padding:6px 12px;border-radius:8px;
+  border:1px solid var(--primary-100);font-variant-numeric:tabular-nums;
+}
+.ov-sal-est{color:#555;}
+.ov-sal-est b{color:var(--primary);font-weight:700;font-variant-numeric:tabular-nums;}
+.ov-sal-act{color:#333;font-variant-numeric:tabular-nums;}
+.ov-sal-act::before{content:"💵 ";font-size:11px;}
+.ov-sal-diff{font-weight:700;font-size:14px;text-align:right;font-variant-numeric:tabular-nums;}
+.ov-sal-diff.pos{color:#cf1322;}
+.ov-sal-diff.neg{color:#49bd68;}
+.ov-sal-note{
+  grid-column:1 / -1;font-size:12px;color:#666;
+  background:#fff8f1;padding:6px 10px;border-radius:6px;
+  border-left:3px solid var(--primary);
+}
+.ov-sal-acts{
+  grid-column:1 / -1;display:flex;gap:6px;justify-content:flex-end;margin-top:2px;
+}
+@media (max-width:640px){
+  .ov-sal-row{grid-template-columns:1fr;}
+  .ov-sal-acts{justify-content:flex-start;}
+}
+
+/* ===== 设置弹窗 ===== */
+.ov-settings-form{display:flex;flex-direction:column;gap:10px;}
+.ov-settings-form .form-row{display:flex;gap:10px;}
+.ov-readonly{
+  background:#f5f5f5 !important;color:#666 !important;cursor:not-allowed;
+  font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:.3px;
+}
+.ov-set-actions{
+  display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;
+}
+
+/* 让 input 在弹窗里始终可点击（避免被父级 .modal 屏蔽） */
+#settingsModal .form input,
+#settingsModal .form select,
+#settingsModal .form textarea,
+#salaryModal .form input,
+#salaryModal .form select{
+  pointer-events:auto !important;
+}
+
+/* ===== 年度月度表格 ===== */
+.ov-monthly-table{font-size:13px;overflow-x:auto;}
+.ov-monthly-table table{width:100%;border-collapse:collapse;min-width:480px;}
+.ov-monthly-table th,
+.ov-monthly-table td{
+  border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;
+  font-variant-numeric:tabular-nums;
+}
+.ov-monthly-table thead th{background:#f5f6f8;font-weight:700;color:#555;font-size:12px;}
+.ov-monthly-table tbody tr:hover{background:#f9f9f9;}
+
+/* ===== 移动端 ===== */
+@media (max-width:768px){
+  .ov-topbar{padding:10px 12px;flex-wrap:wrap;}
+  .ov-title{font-size:16px;}
+  .ov-actions{width:100%;justify-content:flex-end;}
+  .ov-month-header{flex-direction:column;align-items:flex-start;gap:6px;}
+}
