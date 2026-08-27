@@ -17,6 +17,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 
 /* ===== TOP BAR ===== */
 .top-bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px 14px;padding:14px 24px;background:var(--navy);border-bottom:3px solid var(--navy);position:sticky;top:0;z-index:100;box-shadow:0 4px 0 rgba(23,59,120,.35)}
+.fd-back-btn{display:none !important;text-decoration:none !important;background:rgba(255,244,216,.12) !important;border:1.5px solid rgba(255,244,216,.4) !important;color:var(--cream) !important;flex:none !important}
+.fd-back-btn.show{display:inline-flex !important;align-items:center !important;gap:4px !important}
 .title-area{flex:1;min-width:0}
 .article-title{font-size:18px;font-weight:800;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .article-meta{font-size:12px;color:rgba(255,244,216,.75);margin-top:2px}
@@ -122,7 +124,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 
 /* ===== READING VIEW ===== */
 .reading-view{display:grid;grid-template-columns:440px minmax(0,1fr) 280px;gap:24px;padding:24px;max-width:1400px;margin:0 auto}
-.article-area{flex:1;min-width:0;background:var(--white);border:2.5px solid var(--navy);border-radius:20px 26px 18px 23px;padding:28px 36px;box-shadow:7px 8px 0 rgba(23,59,120,.8);font-family:Georgia,'Times New Roman',serif}
+.article-area{flex:1;min-width:0;background:var(--white);border:2.5px solid var(--navy);border-radius:20px 26px 18px 23px;padding:28px 36px;box-shadow:7px 8px 0 rgba(23,59,120,.8);font-family:Georgia,'Times New Roman',serif;min-height:240px}
 .article-area h2{font-size:22px;font-weight:700;margin:28px 0 16px;color:#1a1a2e;font-family:-apple-system,sans-serif}
 .article-area h3{font-size:18px;font-weight:600;margin:24px 0 12px;color:#1a1a2e;font-family:-apple-system,sans-serif}
 .article-area p{font-size:17px;line-height:1.85;margin-bottom:18px;color:#2d3748}
@@ -308,18 +310,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 
 /* ===== RESPONSIVE ===== */
 @media(max-width:900px){
-  .reading-view{grid-template-columns:1fr;padding:16px}
-  .translate-panel{width:100%;position:relative;top:0;max-height:none}
-  .translate-blocks{max-height:none}
-  .word-bank-panel{width:100%}
-  .word-list-wrap{max-height:300px}
-  .article-area{padding:20px 24px}
-  .exercise-content{padding:20px 24px}
+  /* 强制单列堆叠，!important 确保覆盖任何更高优先级的 grid 设置 */
+  .reading-view{
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) !important;
+    grid-auto-flow:row !important;
+    padding:16px !important;
+    gap:16px !important
+  }
+  .reading-view>.translate-panel,
+  .reading-view>.article-area,
+  .reading-view>.word-bank-panel{
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    grid-column:1 / -1 !important;
+    box-sizing:border-box !important
+  }
+  .translate-panel{position:relative !important;top:0 !important;max-height:none !important}
+  .translate-blocks{max-height:none !important}
+  .word-bank-panel{width:100% !important}
+  .word-list-wrap{max-height:300px !important}
+  .article-area{padding:20px 18px !important;min-height:200px !important}
+  .exercise-content{padding:20px 18px !important}
 }
 @media(max-width:600px){
   /* reading-ex.html 顶栏 mobile 适配——直接写在 inline style 里，绕过所有 SW/缓存 */
   .top-bar{padding:8px 10px;flex-wrap:wrap;gap:6px}
-  .title-area{flex:1 1 100%;min-width:0}
+  .fd-back-btn{
+    order:-99 !important;font-size:11px !important;padding:5px 9px !important;
+    border-radius:6px !important;align-self:flex-start !important
+  }
+  .title-area{flex:1 1 100%;min-width:0;order:0}
   .title-area .article-title{font-size:14px;white-space:normal;line-height:1.3}
   .title-area .article-meta{font-size:11px;margin-top:2px}
   .controls{
@@ -347,7 +369,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
     width:auto !important;max-width:none !important;max-height:75vh !important;
     z-index:2000 !important;border-radius:12px !important;
   }
-  .article-area{padding:16px 18px}
+  .article-area{padding:16px 14px !important}
   .article-area p{font-size:15px;line-height:1.75}
 }
 @media(max-width:380px){
@@ -456,6 +478,7 @@ if ('serviceWorker' in navigator) {
 
   <!-- Top Bar -->
   <header class="top-bar">
+    <a id="fd-back-btn" class="btn fd-back-btn" href="index.html" title="返回 FitDesk 工作台">← 返回工作台</a>
     <div class="title-area">
       <h1 class="article-title"></h1>
       <span class="article-meta"></span>
@@ -628,6 +651,12 @@ const $meta        = document.querySelector('.article-meta');
 // INIT
 // ============================================================
 function init() {
+  // 自适应 iframe 检测：仅在顶级窗口直开时显示「返回工作台」按钮
+  try {
+    var inFrame = (window.self !== window.top);
+    var back = document.getElementById('fd-back-btn');
+    if (back && !inFrame) back.classList.add('show');
+  } catch (e) {}
   // 优先读 URL ?id=，从 localStorage 取用户导入的文章覆盖 ARTICLE_DATA
   try {
     var _params = new URL(location.href).searchParams;
