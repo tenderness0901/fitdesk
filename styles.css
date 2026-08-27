@@ -790,9 +790,9 @@ select.mini { padding: 5px 20px 5px 8px; }
    reading-ex.html —— 顶栏「文章库 / 打卡」下拉浮层
    ========================================================= */
 .ex-pop-layer{
-  position: fixed; top: 62px; right: 12px; z-index: 9999;
+  position: fixed; top: 110px; right: 12px; z-index: 9999;
   width: min(384px, calc(100vw - 24px));
-  max-height: 78vh; overflow: auto;
+  max-height: 75vh; overflow: auto;
   background:#fff; color:#222;
   border:1px solid #e3e3e3; border-radius:12px;
   box-shadow:0 10px 34px rgba(0,0,0,.18);
@@ -1005,4 +1005,90 @@ select.mini { padding: 5px 20px 5px 8px; }
 @media (max-width:540px){
   .rd-lib-grid{ grid-template-columns:1fr 1fr; }
   .rd-stat .rs-v{ font-size:18px; }
+}
+
+/* =========================================================
+   阅读文章（reading-ex.html）顶部 .top-bar 移动端适配
+   —— 按钮太多，必须紧凑、自然换行，不能被压成竖排
+   ========================================================= */
+@media (max-width:768px){
+  .top-bar{
+    padding:8px 10px !important;
+    gap:6px !important;
+  }
+  .top-bar .title-area{ flex:1; min-width:0; }
+  .top-bar .article-title{ font-size:14px !important; }
+  .top-bar .controls{
+    width:100% !important;
+    justify-content:flex-start !important;
+    gap:4px !important;
+    flex-wrap:wrap !important;
+  }
+  .top-bar .controls .btn{
+    padding:5px 9px !important;
+    font-size:11px !important;
+    border-radius:6px !important;
+    border-width:1px !important;
+    flex:none !important;
+    white-space:nowrap !important;
+    line-height:1.2 !important;
+  }
+  .top-bar .controls .audio-player{
+    width:100% !important;
+    order:99;
+    padding:4px 0 !important;
+    gap:4px !important;
+    flex-wrap:wrap !important;
+  }
+  .top-bar .controls .audio-btn{ width:30px !important; height:30px !important; font-size:14px !important; }
+  .top-bar .controls .audio-speed{ font-size:11px !important; padding:2px 4px !important; }
+
+  /* 文章库/打卡 弹层在移动端接近全宽、从底部浮起 */
+  .ex-pop-layer{
+    top:auto !important;
+    bottom:8px !important;
+    right:8px !important;
+    left:8px !important;
+    width:auto !important;
+    max-width:none !important;
+    max-height:75vh !important;
+  }
+}
+@media (max-width:540px){
+  .top-bar .controls .btn{ padding:4px 7px !important; font-size:10px !important; }
+}
+
+/* =========================================================
+   英语精读（reading.html）顶部 .rd-topbar 移动端适配
+   —— 标题和按钮同行，按钮单独换行后紧凑显示
+   ========================================================= */
+@media (max-width:768px){
+  .rd-topbar{
+    padding:8px 12px !important;
+    gap:6px !important;
+  }
+  .rd-back{ font-size:12px !important; }
+  .rd-title{
+    flex:1 !important;
+    flex-basis:auto !important;
+    order:0 !important;
+    font-size:13px !important;
+    min-width:0 !important;
+  }
+  .rd-actions{
+    width:100% !important;
+    flex-wrap:wrap !important;
+    gap:4px !important;
+  }
+  .rd-actions .btn{
+    padding:4px 9px !important;
+    font-size:11px !important;
+  }
+  /* 精读阅读条：让标题输入框自动换行 */
+  .rd-reader-bar{ flex-wrap:wrap !important; }
+  .rd-reader-meta{ flex-basis:100% !important; }
+  .rd-title-input{ font-size:13px !important; }
+}
+@media (max-width:540px){
+  .rd-actions .btn{ padding:3px 7px !important; font-size:10px !important; }
 }

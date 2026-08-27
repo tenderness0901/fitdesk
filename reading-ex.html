@@ -3722,7 +3722,7 @@ window.addEventListener('load', function(){
   layer.className = 'ex-pop-layer';
   function closePop(){ layer.style.display='none'; layer.innerHTML=''; }
   document.addEventListener('click', function(e){
-    if (layer.style.display!=='none' && !layer.contains(e.target) && e.target.id!=='library-btn' && e.target.id!=='checkin-btn') closePop();
+    if (layer.style.display!=='none' && !layer.contains(e.target) && !e.target.closest('#library-btn') && !e.target.closest('#checkin-btn')) closePop();
   });
 
   function buildFromText(raw, title){
