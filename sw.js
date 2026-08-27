@@ -1,16 +1,16 @@
 // FitDesk Service Worker —— 缓存应用壳，支持离线打开；不拦截同步 API 与动态请求。
-const CACHE = 'fitdesk-v38';
+const CACHE = 'fitdesk-v39';
 const SHELL = [
   './',
   'index.html',
-  'styles.css?v=2026082708',
-  'app.js?v=2026082708',
-  'words1800.js?v=2026082708',
+  'styles.css?v=2026082709',
+  'app.js?v=2026082709',
+  'words1800.js?v=2026082709',
   'overtime.html',
   'reading.html',
-  'overtime.js?v=2026082708',
-  'reading.js?v=2026082708',
-  'reading-ex.html?v=2026082708',
+  'overtime.js?v=2026082709',
+  'reading.js?v=2026082709',
+  'reading-ex.html?v=2026082709',
   'fitdesk-store.js',
   'manifest.json',
   'icons/icon-192.svg',
@@ -24,11 +24,16 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    // 清空所有旧版本缓存，避免旧页面被缓存卡死
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    // 立即接管所有已打开的标签页
+    await self.clients.claim();
+    // 强制刷新所有打开的窗口，确保立即加载最新页面（根治旧 SW 死循环）
+    const cls = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    cls.forEach((c) => { if (c.url) { try { c.navigate(c.url); } catch (_) {} } });
+  })());
 });
 
 self.addEventListener('fetch', (e) => {
