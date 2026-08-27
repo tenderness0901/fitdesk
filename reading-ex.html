@@ -378,9 +378,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
     }
   } catch(e){}
 })();
-// 2) 兜底注册 SW：standalone 访问本页面（不通过 index.html）也能挂上 SW、拉新缓存
+// 2) 卸载所有 Service Worker：旧 SW 用“缓存优先”会死循环地返回旧页面
+//    （文章库/打卡点不动、手机端布局错乱都源于此）。这里每次加载都强制注销，
+//    站点回归普通网页，靠 no-cache 元标签保证“刷新即最新”，不再依赖任何 SW。
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js?v=2026082710').catch(function(e){});
+  window.addEventListener('load', function(){
+    var url = new URL(window.location.href);
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      if (regs.length && !url.searchParams.has('sw-purged')) {
+        return Promise.all(regs.map(function(r){ return r.unregister(); })).then(function(){
+          url.searchParams.set('sw-purged','1');
+          window.location.replace(url.toString());
+        });
+      }
+    }).catch(function(){});
+  });
 }
 </script>
 <div class="app">

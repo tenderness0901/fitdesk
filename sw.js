@@ -1,61 +1,27 @@
-// FitDesk Service Worker —— 缓存应用壳，支持离线打开；不拦截同步 API 与动态请求。
-const CACHE = 'fitdesk-v40';
-const SHELL = [
-  './',
-  'index.html',
-  'styles.css?v=2026082710',
-  'app.js?v=2026082710',
-  'words1800.js?v=2026082710',
-  'overtime.html',
-  'reading.html',
-  'overtime.js?v=2026082710',
-  'reading.js?v=2026082710',
-  'reading-ex.html?v=2026082710',
-  'fitdesk-store.js',
-  'manifest.json',
-  'icons/icon-192.svg',
-  'icons/icon-512.svg'
-];
+// FitDesk Service Worker —— 纯透传（不缓存任何响应），永远从网络取最新文件。
+// 站点页面会在加载时自行 unregister 本 SW，因此本文件仅作兜底，不会再造成旧缓存死循环。
+const CACHE = 'fitdesk-v41';
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())
-  );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
-    // 清空所有旧版本缓存，避免旧页面被缓存卡死
+    // 清空所有历史缓存，避免旧页面被缓存卡死
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
-    // 立即接管所有已打开的标签页
+    await Promise.all(keys.map((k) => caches.delete(k)));
     await self.clients.claim();
-    // 强制刷新所有打开的窗口，确保立即加载最新页面（根治旧 SW 死循环）
-    const cls = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    cls.forEach((c) => { if (c.url) { try { c.navigate(c.url); } catch (_) {} } });
   })());
 });
 
 self.addEventListener('fetch', (e) => {
-  const req = e.request;
-  if (req.method !== 'GET') return; // POST（同步上传等）一律走网络，不缓存
-
-  const url = new URL(req.url);
+  if (e.request.method !== 'GET') return; // POST（同步上传等）一律走网络，不缓存
+  const url = new URL(e.request.url);
   // 同步接口（/push、/pull、/health）是动态数据，绝不缓存
   if (/\/(push|pull|health)(\?|$)/.test(url.pathname)) return;
-
-  // 网络优先：保证强刷/重新部署后一定拿到最新文件，不被旧缓存卡住；
-  // 仅当网络失败（离线）时才回退到缓存，兼顾离线可用。
+  // 一律走网络，不缓存；离线时若恰好有缓存则兜底，否则交回网络错误
   e.respondWith(
-    fetch(req)
-      .then((res) => {
-        if (res && res.ok &&
-            (url.origin === self.location.origin || url.hostname.includes('cdn.jsdelivr.net'))) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-        }
-        return res;
-      })
-      .catch(() => caches.match(req).then((c) => c || caches.match('./index.html')))
+    fetch(e.request).catch(() => caches.match(e.request).then((c) => c || caches.match('./index.html')))
   );
 });

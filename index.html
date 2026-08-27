@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="FitDesk" />
 <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-  <link rel="stylesheet" href="styles.css?v=2026082710" />
+  <link rel="stylesheet" href="styles.css?v=2026082711" />
 <script>
 (function(){
   window._errs = [];
@@ -504,7 +504,7 @@
 
     <!-- 阅读文章（套用 english-reading-exercises 技能：划词即译 + 单词本 + 6 种练习） -->
     <section class="module" id="m-readingex">
-      <iframe class="rd-frame" src="reading-ex.html?v=2026082710" title="阅读文章"></iframe>
+      <iframe class="rd-frame" src="reading-ex.html?v=2026082711" title="阅读文章"></iframe>
     </section>
   </main>
 </div>
@@ -592,32 +592,21 @@
 </nav>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="words1800.js?v=2026082710"></script>
-<script src="app.js?v=2026082710"></script>
+<script src="words1800.js?v=2026082711"></script>
+<script src="app.js?v=2026082711"></script>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       const url = new URL(window.location.href);
-      if (navigator.serviceWorker.controller && !url.searchParams.has('sw-purged')) {
-        // 被旧 SW 控制，先 unregister 再刷新，确保拿到最新版本（只执行一次）
-        navigator.serviceWorker.getRegistrations().then(function (regs) {
-          return Promise.all(regs.map(function (r) { return r.unregister(); }));
-        }).then(function () {
-          url.searchParams.set('sw-purged', '1');
-          window.location.replace(url.toString());
-        }).catch(function (e) {
-          console.log('SW 清理失败：', e);
-        });
-      } else {
-        navigator.serviceWorker.register('sw.js?v=2026082710').catch(function (e) {
-          console.log('SW 注册失败（不影响使用）：', e);
-        });
-        if (url.searchParams.has('sw-purged')) {
-          url.searchParams.delete('sw-purged');
-          window.history.replaceState({}, '', url.toString());
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        if (regs.length && !url.searchParams.has('sw-purged')) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); })).then(function () {
+            url.searchParams.set('sw-purged', '1');
+            window.location.replace(url.toString());
+          });
         }
-      }
+      }).catch(function (e) { console.log('SW 清理失败：', e); });
     });
   }
 
