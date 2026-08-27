@@ -369,6 +369,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
       <button class="btn" id="edit-article-btn" title="编辑文章：可改文字/段落，保存后重渲染、重新生成练习">⚙ 编辑文章</button>
       <button class="btn" id="export-btn">导出单词本</button>
       <button class="btn btn-primary" id="view-toggle-btn">生成练习</button>
+      <button class="btn" id="library-btn" title="查看所有导入文章">📂 文章库</button>
+      <button class="btn" id="checkin-btn" title="按文章打卡 + 汇总">📅 打卡</button>
     </div>
     <div class="audio-progress" id="audio-progress" title="点击进度条跳转到该段">
       <div class="audio-progress-fill" id="audio-progress-fill"></div>
@@ -3691,145 +3693,174 @@ window.addEventListener('load', function(){
 <script>
 (function(){
   var STORE_KEY = 'fdReadingEx';
+  var CK_KEY = 'fdReadingExCheckin';
   function getStore(){ try { return JSON.parse(localStorage.getItem(STORE_KEY)||'{}'); } catch(e){ return {}; } }
   function saveStore(s){ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }
+  function getCk(){ try { return JSON.parse(localStorage.getItem(CK_KEY)||'{}'); } catch(e){ return {}; } }
+  function saveCk(o){ localStorage.setItem(CK_KEY, JSON.stringify(o)); }
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function openArticle(id){
     var u = new URL(location.href);
     if (id) u.searchParams.set('id', id); else u.searchParams.delete('id');
     location.href = u.toString();
   }
-  var btn = document.createElement('button');
-  btn.textContent = '📂 文章库';
-  btn.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:99999;background:#ff6b35;color:#fff;border:none;border-radius:20px;padding:8px 14px;font-size:13px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer;';
-  document.body.appendChild(btn);
-  var panel = document.createElement('div');
-  panel.style.cssText = 'position:fixed;right:12px;bottom:54px;z-index:99999;width:280px;max-height:72vh;overflow:auto;background:#fff;color:#222;border:1px solid #e3e3e3;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.2);padding:12px;display:none;font-size:13px;';
-  document.body.appendChild(panel);
-  function renderPanel(){
+  function currentId(){
+    var p = new URL(location.href).searchParams.get('id');
+    return p || (window.ARTICLE_DATA && ARTICLE_DATA.id) || null;
+  }
+  function nowISO(){ var d=new Date(); function p(n){return (n<10?'0':'')+n;} return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
+  function checkin(artId){
+    if(!artId) return;
+    var o=getCk(); if(!o[artId]) o[artId]=[];
+    o[artId].push(nowISO()); saveCk(o);
+  }
+  function countOf(artId){ var o=getCk(); return o[artId]?o[artId].length:0; }
+  function lastOf(artId){ var o=getCk(); return (o[artId]&&o[artId].length)?o[artId][o[artId].length-1]:null; }
+
+  var layer = document.getElementById('exPop');
+  if (!layer){ layer = document.createElement('div'); layer.id='exPop'; document.body.appendChild(layer); }
+  layer.className = 'ex-pop-layer';
+  function closePop(){ layer.style.display='none'; layer.innerHTML=''; }
+  document.addEventListener('click', function(e){
+    if (layer.style.display!=='none' && !layer.contains(e.target) && e.target.id!=='library-btn' && e.target.id!=='checkin-btn') closePop();
+  });
+
+  function buildFromText(raw, title){
+    var blocks = raw.replace(/\r\n/g,'\n').split(/\n\s*\n+/);
+    var paras = [];
+    blocks.forEach(function(b){
+      var p = b.split('\n').map(function(s){return s.trim();}).filter(Boolean).join(' ');
+      if (p) paras.push(p);
+    });
+    if (!paras.length) return null;
+    var t = (title||'').trim() || paras[0].slice(0,60);
+    var content = paras.map(function(p){ return '<p>' + esc(p) + '</p>'; }).join('');
+    var hash = 0;
+    for (var i = 0; i < raw.length; i++) hash = (hash * 31 + raw.charCodeAt(i)) | 0;
+    var id = 'user-text-' + Math.abs(hash).toString(36);
+    return { id:id, title:t, author:'', source:'FitDesk 纯文本导入', content:content, dictionary:{}, exercises:{vocabulary:[],cloze:[],reorder:[],concept:[],recitation:{passages:[]}}, partial:true };
+  }
+
+  function renderLibrary(){
     var store = getStore();
-    var html = '<div style="font-weight:700;margin-bottom:8px;">📚 阅读练习文章库</div>';
-    html += '<div style="margin-bottom:8px;"><a href="#" data-id="" style="display:block;padding:6px 8px;background:#fff3ec;border-radius:8px;color:#ff6b35;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">★ 示例文章：The Quiet Power of Walking</a></div>';
+    var html = '<div class="ex-pop-head">📚 文章库 <button class="ex-pop-x" data-close>✕</button></div>';
+    html += '<div class="ex-pop-body">';
+    html += '<a class="ex-lib-item" href="#" data-id="">★ 示例文章：The Quiet Power of Walking</a>';
     var keys = Object.keys(store);
     if (keys.length){
-      html += '<div style="color:#888;margin:6px 0 4px;">已导入：</div>';
+      html += '<div class="ex-lib-sep">已导入（'+keys.length+'）：</div>';
       keys.forEach(function(k){
         var t = store[k].title || k;
-        html += '<a href="#" data-id="'+k+'" style="display:block;padding:6px 8px;background:#f5f6f8;border-radius:8px;color:#222;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;">'+t+'</a>';
+        var ck = countOf(k);
+        html += '<div class="ex-lib-item" data-row="'+esc(k)+'">'
+              + '<span class="ex-lib-title">'+esc(t)+'</span>'
+              + '<span class="ex-lib-ck">📅'+ck+'</span>'
+              + '<button class="ex-lib-open" data-open="'+esc(k)+'">打开</button>'
+              + '<button class="ex-lib-ckbtn" data-ck="'+esc(k)+'">打卡</button>'
+              + '<button class="ex-lib-del" data-del="'+esc(k)+'">删除</button>'
+              + '</div>';
       });
+    } else {
+      html += '<div class="ex-lib-sep">还没有导入文章。</div>';
     }
-    html += '<div style="border-top:1px solid #eee;margin:8px 0;"></div>';
-    html += '<div style="font-weight:600;margin-bottom:6px;">＋ 导入新文章</div>';
-    html += '<div style="display:flex;gap:6px;margin-bottom:6px">';
-    html +=   '<button data-fd-tab="json" style="flex:1;padding:6px 8px;border:1px solid #ff6b35;background:#ff6b35;color:#fff;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">📄 JSON 数据</button>';
-    html +=   '<button data-fd-tab="text" style="flex:1;padding:6px 8px;border:1px solid #ddd;background:#fff;color:#555;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">📝 纯文本</button>';
+    html += '<div class="ex-lib-sep">＋ 导入新文章</div>';
+    html += '<input class="ex-imp-title" id="fdTitle" placeholder="给文章起个标题（必填，方便查找）" />';
+    html += '<div class="ex-imp-tabs">'
+          + '<button class="ex-tab active" data-fd-tab="json">📄 JSON 数据</button>'
+          + '<button class="ex-tab" data-fd-tab="text">📝 纯文本</button>'
+          + '</div>';
+    html += '<textarea class="ex-imp-ta" id="fdImport" placeholder="把 AI 生成的文章 JSON 粘贴到这里"></textarea>';
+    html += '<button class="ex-imp-btn" id="fdImportBtn">导入并打开</button>';
+    html += '<div class="ex-imp-msg" id="fdMsg"></div>';
+    html += '<div class="ex-imp-tip" id="fdTipJson">完整的文章 JSON（含词典 / 六类练习）。粘贴进来即可阅读 + 做练习。</div>';
+    html += '<div class="ex-imp-tip" id="fdTipText" style="display:none">📝 直接粘贴英文原文（可多段），会自动按空行分段、生成基础文章并打开。需填写上方标题。</div>';
     html += '</div>';
-    html += '<textarea id="fdImport" placeholder="把 AI 生成的文章 JSON 粘贴到这里" style="width:100%;height:90px;box-sizing:border-box;font-size:12px;"></textarea>';
-    html += '<button id="fdImportBtn" style="margin-top:6px;width:100%;background:#ff6b35;color:#fff;border:none;border-radius:8px;padding:8px;font-weight:700;cursor:pointer;">导入并打开</button>';
-    html += '<div id="fdMsg" style="font-size:12px;margin-top:6px;"></div>';
-    html += '<div id="fdTipJson" style="color:#999;font-size:11px;margin-top:8px;line-height:1.5;">完整的文章 JSON（含词典 / 六类练习）。如果你有完整数据，粘贴进来即可阅读 + 做练习。</div>';
-    html += '<div id="fdTipText" style="display:none;color:#999;font-size:11px;margin-top:8px;line-height:1.5;">📝 直接粘贴英文原文（可多段），会自动按空行分段、生成基础文章并打开。<br/>⚠️ 无词典 / 无练习题——点词查功能可用，但练习题页面会提示「请用 AI 生成完整数据」。</div>';
-    panel.innerHTML = html;
+    layer.innerHTML = html;
+    layer.style.display = 'block';
+
+    layer.querySelector('[data-close]').addEventListener('click', closePop);
+    var ta = layer.querySelector('#fdImport');
+    var titleInput = layer.querySelector('#fdTitle');
+    var msg = layer.querySelector('#fdMsg');
+    var btn = layer.querySelector('#fdImportBtn');
+    var activeTab = 'json';
     function switchTab(name){
-      var btns = panel.querySelectorAll('[data-fd-tab]');
-      btns.forEach(function(x){
-        if (x.getAttribute('data-fd-tab') === name){
-          x.style.background='#ff6b35'; x.style.color='#fff'; x.style.borderColor='#ff6b35';
-        } else {
-          x.style.background='#fff'; x.style.color='#555'; x.style.borderColor='#ddd';
-        }
-      });
-      var ta = panel.querySelector('#fdImport');
-      var btn = panel.querySelector('#fdImportBtn');
-      var msg = panel.querySelector('#fdMsg');
-      if (name === 'json'){
-        ta.placeholder = '把 AI 生成的文章 JSON 粘贴到这里';
-        btn.textContent = '导入并打开';
-        panel.querySelector('#fdTipJson').style.display = 'block';
-        panel.querySelector('#fdTipText').style.display = 'none';
-      } else {
-        ta.placeholder = '在此粘贴/输入英文原文（每段一段，段落之间留空行）';
-        btn.textContent = '生成并打开';
-        panel.querySelector('#fdTipJson').style.display = 'none';
-        panel.querySelector('#fdTipText').style.display = 'block';
-      }
-      msg.textContent = '';
+      activeTab = name;
+      layer.querySelectorAll('.ex-tab').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-fd-tab')===name); });
+      if (name==='json'){ ta.placeholder='把 AI 生成的文章 JSON 粘贴到这里'; btn.textContent='导入并打开'; layer.querySelector('#fdTipJson').style.display='block'; layer.querySelector('#fdTipText').style.display='none'; }
+      else { ta.placeholder='在此粘贴/输入英文原文（每段一段，段落之间留空行）'; btn.textContent='生成并打开'; layer.querySelector('#fdTipJson').style.display='none'; layer.querySelector('#fdTipText').style.display='block'; }
     }
-    panel.querySelectorAll('[data-fd-tab]').forEach(function(b){
-      b.addEventListener('click', function(){ switchTab(b.getAttribute('data-fd-tab')); });
-    });
-    panel.querySelectorAll('a[data-id]').forEach(function(a){
-      a.addEventListener('click', function(e){
-        e.preventDefault();
-        var _id = a.getAttribute('data-id');
-        a.style.background = '#fff3ec';
-        a.style.color = '#ff6b35';
-        a.style.fontWeight = '700';
-        a.textContent = '⏳ 正在打开：' + (a.textContent || '');
-        openArticle(_id);
-      });
-    });
-    function buildFromText(raw){
-      var blocks = raw.replace(/\r\n/g,'\n').split(/\n\s*\n+/);
-      var paras = [];
-      blocks.forEach(function(b){
-        var p = b.split('\n').map(function(s){return s.trim();}).filter(Boolean).join(' ');
-        if (p) paras.push(p);
-      });
-      if (!paras.length) return null;
-      var first = paras[0];
-      var title = first.length > 60 ? first.slice(0, 60).replace(/\s+\S*$/, '') + '…' : first;
-      var esc = function(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-      var content = paras.map(function(p){ return '<p>' + esc(p) + '</p>'; }).join('');
-      var hash = 0;
-      for (var i = 0; i < raw.length; i++) hash = (hash * 31 + raw.charCodeAt(i)) | 0;
-      var id = 'user-text-' + Math.abs(hash).toString(36);
-      return {
-        id: id, title: title, author: '', source: 'FitDesk 纯文本导入',
-        content: content, dictionary: {},
-        exercises: { vocabulary: [], cloze: [], reorder: [], concept: [], recitation: { passages: [] } },
-        partial: true
-      };
-    }
-    panel.querySelector('#fdImportBtn').addEventListener('click', function(){
-      var ta = panel.querySelector('#fdImport');
-      var msg = panel.querySelector('#fdMsg');
-      var txt = (ta.value || '').trim();
-      if (!txt){ msg.style.color='#c0392b'; msg.textContent = '请先填入内容'; return; }
-      var activeBtn = panel.querySelector('[data-fd-tab][style*="background: rgb(255, 107, 53)"]');
-      var isText = activeBtn && activeBtn.getAttribute('data-fd-tab') === 'text';
-      function doTextImport(){
-        var data = buildFromText(txt);
-        if (!data){ msg.style.color='#c0392b'; msg.textContent = '未能识别到可用的英文段落'; return; }
-        var s = getStore();
-        if (s[data.id]) {
-          msg.style.color = '#e67e22'; msg.textContent = '该文章已存在，直接打开…';
-          setTimeout(function(){ openArticle(data.id); }, 400);
-        } else {
-          s[data.id] = data; saveStore(s);
-          msg.style.color = '#27ae60'; msg.textContent = '已生成基础文章（含 ' + data.content.split('</p>').length - 1 + ' 段），正在打开…';
-          setTimeout(function(){ openArticle(data.id); }, 400);
-        }
-      }
-      if (!isText && txt.charAt(0) === '{'){
+    layer.querySelectorAll('.ex-tab').forEach(function(b){ b.addEventListener('click', function(){ switchTab(b.getAttribute('data-fd-tab')); }); });
+    layer.querySelectorAll('[data-open]').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); openArticle(a.getAttribute('data-open')); }); });
+    layer.querySelectorAll('[data-del]').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var k=a.getAttribute('data-del'); if(confirm('确定删除《'+(store[k].title||k)+'》？此操作不可撤销')){ var s=getStore(); delete s[k]; saveStore(s); renderLibrary(); } }); });
+    layer.querySelectorAll('[data-ck]').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); var k=a.getAttribute('data-ck'); checkin(k); renderLibrary(); }); });
+    layer.querySelector('a[data-id]').addEventListener('click', function(e){ e.preventDefault(); openArticle(''); });
+    btn.addEventListener('click', function(){
+      var txt = (ta.value||'').trim();
+      var title = (titleInput.value||'').trim();
+      if (!txt){ msg.style.color='#c0392b'; msg.textContent='请先填入内容'; return; }
+      if (activeTab==='text' && !title){ msg.style.color='#c0392b'; msg.textContent='请填写文章标题（必填）'; titleInput.focus(); return; }
+      if (activeTab==='json'){
         try {
           var data = JSON.parse(txt);
-          if (!data.id || !data.content) { msg.style.color='#c0392b'; msg.textContent = 'JSON 缺少 id 或 content 字段'; return; }
-          var s = getStore(); s[data.id] = data; saveStore(s);
-          msg.style.color = '#27ae60'; msg.textContent = '导入成功，正在打开…';
-          setTimeout(function(){ openArticle(data.id); }, 400);
+          if (!data.id || !data.content){ msg.style.color='#c0392b'; msg.textContent='JSON 缺少 id 或 content 字段'; return; }
+          if (!data.title) data.title = title || data.id;
+          var s=getStore(); s[data.id]=data; saveStore(s);
+          msg.style.color='#27ae60'; msg.textContent='导入成功，正在打开…';
+          setTimeout(function(){ openArticle(data.id); }, 350);
         } catch(err){
-          msg.style.color = '#e67e22'; msg.textContent = 'JSON 解析失败，按纯文本导入：' + err.message;
-          setTimeout(function(){ doTextImport(); }, 600);
+          msg.style.color='#e67e22'; msg.textContent='JSON 解析失败：'+err.message;
         }
       } else {
-        doTextImport();
+        var data2 = buildFromText(txt, title);
+        if (!data2){ msg.style.color='#c0392b'; msg.textContent='未能识别到可用的英文段落'; return; }
+        var s2=getStore();
+        if (s2[data2.id]) { msg.style.color='#e67e22'; msg.textContent='该文章已存在，直接打开…'; setTimeout(function(){ openArticle(data2.id); }, 400); }
+        else { s2[data2.id]=data2; saveStore(s2); msg.style.color='#27ae60'; msg.textContent='已生成基础文章（'+(data2.content.split('</p>').length-1)+' 段），正在打开…'; setTimeout(function(){ openArticle(data2.id); }, 400); }
       }
     });
   }
-  btn.addEventListener('click', function(){
-    if (panel.style.display === 'none'){ renderPanel(); panel.style.display = 'block'; }
-    else panel.style.display = 'none';
-  });
+
+  function renderCheckin(){
+    var store = getStore();
+    var keys = Object.keys(store);
+    var cid = currentId();
+    var html = '<div class="ex-pop-head">📅 阅读打卡 <button class="ex-pop-x" data-close>✕</button></div>';
+    html += '<div class="ex-pop-body">';
+    html += '<div class="ex-ck-now">';
+    if (cid && store[cid]){
+      var t = store[cid].title || cid;
+      html += '<div class="ex-ck-now-title">当前文章：<b>'+esc(t)+'</b></div>';
+      html += '<div class="ex-ck-now-stat">累计打卡 <b>'+countOf(cid)+'</b> 次 · 最近：'+(lastOf(cid)||'—')+'</div>';
+      html += '<button class="ex-ck-do" data-dock="'+esc(cid)+'">✓ 打卡本文</button>';
+      var list = (getCk()[cid]||[]).slice().reverse();
+      if (list.length){ html += '<div class="ex-ck-hist">打卡记录（新→旧）：</div>'; list.forEach(function(ts){ html += '<div class="ex-ck-row">'+esc(ts)+' <button class="ex-ck-del" data-delck="'+esc(cid)+'" data-ts="'+esc(ts)+'">删除</button></div>'; }); }
+    } else {
+      html += '<div class="ex-ck-now-title">当前是示例文章，无法打卡（请打开一篇已导入文章）。</div>';
+    }
+    html += '</div>';
+    html += '<div class="ex-ck-sum-h">全部文章打卡汇总</div>';
+    if (keys.length){
+      keys.forEach(function(k){
+        var t = store[k].title || k;
+        html += '<div class="ex-ck-sum-row"><span class="ex-ck-sum-t">'+esc(t)+'</span><span class="ex-ck-sum-n">📅'+countOf(k)+' 次</span><span class="ex-ck-sum-l">最近 '+(lastOf(k)||'—')+'</span></div>';
+      });
+    } else {
+      html += '<div class="ex-ck-hist">还没有文章。</div>';
+    }
+    html += '</div>';
+    layer.innerHTML = html;
+    layer.style.display='block';
+    layer.querySelector('[data-close]').addEventListener('click', closePop);
+    var dock = layer.querySelector('[data-dock]');
+    if (dock) dock.addEventListener('click', function(){ checkin(cid); renderCheckin(); });
+    layer.querySelectorAll('[data-delck]').forEach(function(b){ b.addEventListener('click', function(){ var o=getCk(); var aid=b.getAttribute('data-delck'); var ts=b.getAttribute('data-ts'); if(o[aid]){ o[aid]=o[aid].filter(function(x){return x!==ts;}); saveCk(o); renderCheckin(); } }); });
+  }
+
+  var libraryBtn = document.getElementById('library-btn');
+  var checkinBtn = document.getElementById('checkin-btn');
+  if (libraryBtn) libraryBtn.addEventListener('click', function(e){ e.stopPropagation(); if (layer.style.display==='block' && layer.dataset.mode==='lib') closePop(); else { renderLibrary(); layer.dataset.mode='lib'; } });
+  if (checkinBtn) checkinBtn.addEventListener('click', function(e){ e.stopPropagation(); if (layer.style.display==='block' && layer.dataset.mode==='ck') closePop(); else { renderCheckin(); layer.dataset.mode='ck'; } });
 })();
 </script>
 
