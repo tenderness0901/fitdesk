@@ -1,16 +1,16 @@
 // FitDesk Service Worker —— 缓存应用壳，支持离线打开；不拦截同步 API 与动态请求。
-const CACHE = 'fitdesk-v34';
+const CACHE = 'fitdesk-v35';
 const SHELL = [
   './',
   'index.html',
-  'styles.css?v=2026082704',
-  'app.js?v=2026082704',
-  'words1800.js?v=2026082704',
+  'styles.css?v=2026082705',
+  'app.js?v=2026082705',
+  'words1800.js?v=2026082705',
   'overtime.html',
   'reading.html',
-  'overtime.js?v=2026082704',
-  'reading.js?v=2026082704',
-  'reading-ex.html?v=2026082704',
+  'overtime.js?v=2026082705',
+  'reading.js?v=2026082705',
+  'reading-ex.html?v=2026082705',
   'fitdesk-store.js',
   'manifest.json',
   'icons/icon-192.svg',

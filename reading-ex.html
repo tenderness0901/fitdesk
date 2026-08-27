@@ -506,6 +506,20 @@ const $meta        = document.querySelector('.article-meta');
 // INIT
 // ============================================================
 function init() {
+  // 优先读 URL ?id=，从 localStorage 取用户导入的文章覆盖 ARTICLE_DATA
+  try {
+    var _params = new URL(location.href).searchParams;
+    var _uid = _params.get('id');
+    if (_uid && _uid !== 'quiet-power-of-walking') {
+      var _store = JSON.parse(localStorage.getItem('fdReadingEx') || '{}');
+      if (_store[_uid]) {
+        ARTICLE_DATA = _store[_uid];
+        window.ARTICLE_DATA = ARTICLE_DATA;
+        // 同步刷新 STORAGE_KEY 派生变量（单词本/翻译/编辑等都按新文章分桶）
+        STORAGE_KEY = 'er_wordbank_' + ARTICLE_DATA.id;
+      }
+    }
+  } catch (e) { console.log('读 URL id 失败：', e); }
   document.title = '阅读: ' + ARTICLE_DATA.title;
   $title.textContent = ARTICLE_DATA.title;
   const metaParts = [ARTICLE_DATA.author, ARTICLE_DATA.source].filter(Boolean);
@@ -3744,7 +3758,15 @@ window.addEventListener('load', function(){
       b.addEventListener('click', function(){ switchTab(b.getAttribute('data-fd-tab')); });
     });
     panel.querySelectorAll('a[data-id]').forEach(function(a){
-      a.addEventListener('click', function(e){ e.preventDefault(); openArticle(a.getAttribute('data-id')); });
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        var _id = a.getAttribute('data-id');
+        a.style.background = '#fff3ec';
+        a.style.color = '#ff6b35';
+        a.style.fontWeight = '700';
+        a.textContent = '⏳ 正在打开：' + (a.textContent || '');
+        openArticle(_id);
+      });
     });
     function buildFromText(raw){
       var blocks = raw.replace(/\r\n/g,'\n').split(/\n\s*\n+/);
