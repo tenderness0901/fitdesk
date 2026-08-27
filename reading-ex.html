@@ -316,10 +316,42 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
   .exercise-content{padding:20px 24px}
 }
 @media(max-width:600px){
-  .top-bar{padding:10px 14px;flex-wrap:wrap;gap:10px}
-  .controls{width:100%;justify-content:flex-end}
+  /* reading-ex.html 顶栏 mobile 适配——直接写在 inline style 里，绕过所有 SW/缓存 */
+  .top-bar{padding:8px 10px;flex-wrap:wrap;gap:6px}
+  .title-area{flex:1 1 100%;min-width:0}
+  .title-area .article-title{font-size:14px;white-space:normal;line-height:1.3}
+  .title-area .article-meta{font-size:11px;margin-top:2px}
+  .controls{
+    display:flex !important;width:100% !important;flex-wrap:wrap !important;
+    justify-content:flex-start !important;gap:4px !important;
+    align-items:center !important;flex-shrink:1 !important;
+  }
+  .controls .btn{
+    flex:none !important;white-space:nowrap !important;
+    padding:5px 9px !important;font-size:11px !important;
+    border-radius:6px !important;border-width:1px !important;
+    line-height:1.2 !important;min-width:0 !important;
+  }
+  .controls .audio-player{
+    order:99 !important;width:100% !important;flex-wrap:wrap !important;
+    gap:4px !important;padding:4px !important;margin-top:4px !important;
+    background:rgba(255,244,216,.08) !important;
+  }
+  .controls .audio-btn{width:30px !important;height:30px !important;font-size:13px !important}
+  .controls .audio-speed{font-size:11px !important;padding:2px 4px !important;max-width:80px !important}
+  .controls .audio-status,.controls .audio-ab-chip{font-size:10px !important}
+  /* 文章库/打卡弹层 在 mobile 端接近全宽、从底部浮起 */
+  .ex-pop-layer{
+    top:auto !important;bottom:8px !important;left:8px !important;right:8px !important;
+    width:auto !important;max-width:none !important;max-height:75vh !important;
+    z-index:2000 !important;border-radius:12px !important;
+  }
   .article-area{padding:16px 18px}
   .article-area p{font-size:15px;line-height:1.75}
+}
+@media(max-width:380px){
+  .controls .btn{padding:4px 7px !important;font-size:10px !important}
+  .controls .audio-btn{width:26px !important;height:26px !important;font-size:12px !important}
 }
 </style>
 </head>
@@ -332,6 +364,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 </div>
 
 <div class="grain" style="position:fixed;z-index:9999;inset:0;pointer-events:none;opacity:.08;mix-blend-mode:multiply;background-image:radial-gradient(rgba(23,59,120,.32) .55px,transparent .7px),radial-gradient(rgba(255,101,93,.24) .5px,transparent .75px);background-position:0 0,7px 9px;background-size:11px 11px,15px 15px"></div>
+<script>
+// 1) 硬自愈保险：超过 90 分钟没刷新，强制 reload 一次（绕过任何旧 SW/缓存）
+(function(){
+  try{
+    var KEY='fdRxLastReload';
+    var now=Date.now(), last=parseInt(localStorage.getItem(KEY)||'0',10);
+    if (last!==0 && (now-last)>5400000) {
+      localStorage.setItem(KEY, String(now));
+      window.location.reload();
+    } else {
+      localStorage.setItem(KEY, String(now));
+    }
+  } catch(e){}
+})();
+// 2) 兜底注册 SW：standalone 访问本页面（不通过 index.html）也能挂上 SW、拉新缓存
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js?v=2026082710').catch(function(e){});
+}
+</script>
 <div class="app">
 
   <!-- Top Bar -->
