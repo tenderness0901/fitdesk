@@ -1,16 +1,16 @@
 // FitDesk Service Worker —— 缓存应用壳，支持离线打开；不拦截同步 API 与动态请求。
-const CACHE = 'fitdesk-v37';
+const CACHE = 'fitdesk-v38';
 const SHELL = [
   './',
   'index.html',
-  'styles.css?v=2026082707',
-  'app.js?v=2026082707',
-  'words1800.js?v=2026082707',
+  'styles.css?v=2026082708',
+  'app.js?v=2026082708',
+  'words1800.js?v=2026082708',
   'overtime.html',
   'reading.html',
-  'overtime.js?v=2026082707',
-  'reading.js?v=2026082707',
-  'reading-ex.html?v=2026082707',
+  'overtime.js?v=2026082708',
+  'reading.js?v=2026082708',
+  'reading-ex.html?v=2026082708',
   'fitdesk-store.js',
   'manifest.json',
   'icons/icon-192.svg',
@@ -39,20 +39,18 @@ self.addEventListener('fetch', (e) => {
   // 同步接口（/push、/pull、/health）是动态数据，绝不缓存
   if (/\/(push|pull|health)(\?|$)/.test(url.pathname)) return;
 
-  // 同域应用壳：缓存优先；跨域 CDN（如 chart.js）也缓存一份，离线时图表可用
+  // 网络优先：保证强刷/重新部署后一定拿到最新文件，不被旧缓存卡住；
+  // 仅当网络失败（离线）时才回退到缓存，兼顾离线可用。
   e.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req)
-        .then((res) => {
-          if (res && res.ok &&
-              (url.origin === self.location.origin || url.hostname.includes('cdn.jsdelivr.net'))) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached || caches.match('./index.html'));
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok &&
+            (url.origin === self.location.origin || url.hostname.includes('cdn.jsdelivr.net'))) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req).then((c) => c || caches.match('./index.html')))
   );
 });
