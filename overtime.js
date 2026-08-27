@@ -510,7 +510,7 @@ function renderMonthStats() {
     '<div class="sd-row"><span>补贴合计</span><span>¥' + s.allowance.toFixed(2) + "</span></div>" +
     '<div class="sd-row"><span>加班费合计</span><span>¥' + s.otPay.toFixed(2) + "</span></div>" +
     '<div class="sd-row total"><span>应发合计</span><span>¥' + s.gross.toFixed(2) + "</span></div>" +
-    '<div class="sd-row deduct"><span>扣减合计（社保/公积金/个税/其他）</span><span>-¥' + s.deduction.toFixed(2) + "</span></div>" +
+    '<div class="sd-row deduct"><span>扣减合计（社保/公积金/个税/其他）</span><span>' + (s.deduction > 0 ? "-¥" + s.deduction.toFixed(2) : "¥0.00") + "</span></div>" +
     '<div class="sd-row total"><span>预估实发工资</span><span>¥' + s.net.toFixed(2) + "</span></div>" +
     "</div>";
 
