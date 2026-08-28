@@ -399,58 +399,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 .is-reading-mobile .controls .btn{padding:4px 7px !important;font-size:10px !important}
 .is-reading-mobile .controls .audio-btn{width:26px !important;height:26px !important;font-size:12px !important}
 
-/* =========================================================
-   Mobile Tab Bar — 仅 mobile viewport 下显示
-   ========================================================= */
-.mobile-tab-bar{
-  display:none; /* desktop 默认隐藏 */
-  position:sticky; bottom:0; left:0; right:0;
-  z-index:150;
-  background:var(--navy,#173b78); color:#fff;
-  border-top:1.5px solid #0e2a55;
-  box-shadow:0 -4px 14px rgba(0,0,0,.18);
-  padding:6px 8px env(safe-area-inset-bottom, 6px);
-  justify-content:space-around; gap:4px;
-  font-family:system-ui,-apple-system,'PingFang SC',sans-serif;
-}
-.mobile-tab-bar button{
-  flex:1; min-width:0;
-  display:flex; flex-direction:column; align-items:center; gap:2px;
-  padding:4px 2px;
-  background:transparent; border:0; color:rgba(255,255,255,.7);
-  font-size:11px; font-weight:600;
-  border-radius:8px; cursor:pointer;
-  -webkit-tap-highlight-color:transparent;
-}
-.mobile-tab-bar button.active{
-  background:rgba(255,255,255,.16); color:#fff;
-}
-.mobile-tab-bar button:active{ background:rgba(255,255,255,.22); }
-.mobile-tab-bar .mtb-ico{ font-size:18px; line-height:1; }
-.mobile-tab-bar .mtb-txt{ font-size:10px; line-height:1.2; }
-
-/* Mobile Tab 切换 display（类驱动，避免 iframe 内媒体查询失效） */
-.is-reading-mobile .reading-view.is-mobile-tabs > .translate-panel,
-.is-reading-mobile .reading-view.is-mobile-tabs > .article-area,
-.is-reading-mobile .reading-view.is-mobile-tabs > .word-bank-panel{ display:none !important; }
-.is-reading-mobile .reading-view.is-mobile-tabs[data-mobile-tab="article"] > .article-area{ display:block !important; }
-.is-reading-mobile .reading-view.is-mobile-tabs[data-mobile-tab="translate"] > .translate-panel{
-  display:flex !important; flex-direction:column !important;
-  width:100% !important; max-width:100% !important;
-  max-height:none !important; overflow:visible !important;
-  position:relative !important; top:0 !important;
-}
-.is-reading-mobile .reading-view.is-mobile-tabs[data-mobile-tab="wordbank"] > .word-bank-panel{
-  display:flex !important; flex-direction:column !important;
-  width:100% !important; max-width:100% !important;
-  max-height:none !important; overflow:visible !important;
-}
-.is-reading-mobile .reading-view.is-mobile-tabs{ display:block !important; padding:12px !important; gap:0 !important; }
-.is-reading-mobile .reading-view.is-mobile-tabs > .article-area{ min-height:60vh !important; padding:14px 14px !important; }
-.is-reading-mobile .mobile-tab-bar{ display:flex !important; }
-.is-reading-mobile body{ padding-bottom:54px !important; }
-/* iframe 嵌入时也确保 tab bar 浮在最上层 */
-.mobile-tab-bar{ z-index:200 !important; }
 
 /* =========================================================
    「文章库 / 打卡」下拉浮层 样式（自包含，不依赖 styles.css）
@@ -688,17 +636,6 @@ if ('serviceWorker' in navigator) {
 </div>
 
 <!-- Mobile Tab Bar (仅在 mobile viewport 下生效，desktop 完全隐藏) -->
-<nav class="mobile-tab-bar" id="mobile-tab-bar" aria-label="切换面板">
-  <button type="button" data-tab="article" class="active" aria-pressed="true">
-    <span class="mtb-ico">📖</span><span class="mtb-txt">文章</span>
-  </button>
-  <button type="button" data-tab="translate" aria-pressed="false">
-    <span class="mtb-ico">🌐</span><span class="mtb-txt">翻译</span>
-  </button>
-  <button type="button" data-tab="wordbank" aria-pressed="false">
-    <span class="mtb-ico">📚</span><span class="mtb-txt">单词</span>
-  </button>
-</nav>
 
 <!-- Translation Tooltip -->
 <div class="tooltip" id="tooltip"></div>
@@ -778,8 +715,6 @@ function init() {
   // 段落翻译：左栏渲染 + IntersectionObserver 跟随
   renderTranslateBlocks();
   setupTranslateObserver();
-  // Mobile Tab 切换（mobile viewport 下三个 panel 不再堆叠，改用底部 Tab 切换）
-  setTimeout(function(){ try { setupMobileTabBar(); } catch(e){ console.log('tab bar:', e); } }, 0);
   // 自动翻译缺失段落（仅缺失/失败才联网，已有译文不覆盖；结果会持久化，刷新不再重取）
   if ('fetch' in window) {
     setTimeout(function(){ try { autoTranslateAll(false); } catch(e){} }, 400);
@@ -790,7 +725,6 @@ function init() {
     if (!open) document.getElementById('translate-panel').classList.add('hidden');
   } catch(e){}
 }
-
 function renderArticleWithHighlights() {
   var guide = $article.querySelector('.ab-guide');
   var html = ARTICLE_DATA.content;
@@ -4103,86 +4037,6 @@ window.addEventListener('load', function(){
   if (checkinBtn) checkinBtn.addEventListener('click', function(e){ e.stopPropagation(); if (layer.style.display==='block' && layer.dataset.mode==='ck') closePop(); else { renderCheckin(); layer.dataset.mode='ck'; } });
 })();
 
-// ============================================================
-// MOBILE TAB BAR — 仅 mobile viewport 下激活，三个 panel 用 Tab 切换
-// ============================================================
-function setupMobileTabBar(){
-  if (typeof window.matchMedia !== 'function') return;
-  var tabBar = document.getElementById('mobile-tab-bar');
-  var readingView = document.getElementById('reading-view');
-  if (!tabBar || !readingView) return;
-
-  function isMobile(){
-    // iframe 内嵌时，外层窗口才是真实设备宽度（iframe 内部宽度常被渲染成桌面宽）
-    var w = (window.self !== window.top && window.top && window.top.innerWidth) ? window.top.innerWidth : window.innerWidth;
-    if (typeof w === 'number' && w > 0 && w <= 900) return true;
-    try { if (window.matchMedia && window.matchMedia('(max-width:900px)').matches) return true; } catch(e){}
-    return false;
-  }
-
-  function applyTab(name){
-    readingView.setAttribute('data-mobile-tab', name);
-    var btns = tabBar.querySelectorAll('button');
-    for (var i = 0; i < btns.length; i++) {
-      var b = btns[i];
-      var match = b.getAttribute('data-tab') === name;
-      b.classList.toggle('active', match);
-      if (match) b.setAttribute('aria-pressed', 'true'); else b.setAttribute('aria-pressed', 'false');
-    }
-    if (name === 'article') {
-      var aa = readingView.querySelector('.article-area');
-      if (aa) {
-        aa.style.minHeight = '';
-        if (typeof wrapArticleWords === 'function') setTimeout(function(){ try { wrapArticleWords(); } catch(e){} }, 50);
-      }
-    }
-    if (name === 'translate' && typeof setupTranslateObserver === 'function') {
-      setTimeout(function(){ try { setupTranslateObserver(); } catch(e){} }, 80);
-    }
-  }
-
-  function bind(){
-    var btns = tabBar.querySelectorAll('button');
-    for (var i = 0; i < btns.length; i++) {
-      btns[i].addEventListener('click', function(e){
-        e.preventDefault();
-        var t = this.getAttribute('data-tab');
-        applyTab(t);
-        try { window.scrollTo(0,0); readingView.scrollIntoView({block:'start'}); } catch(e){}
-      });
-    }
-  }
-
-  function evaluate(){
-    if (isMobile()) {
-      document.body.classList.add('is-reading-mobile-tabs');
-      readingView.classList.add('is-mobile-tabs');
-      if (!readingView.getAttribute('data-mobile-tab')) applyTab('article');
-      try {
-        var tp = document.getElementById('translate-panel');
-        if (tp) tp.classList.remove('hidden');
-      } catch(e){}
-    } else {
-      document.body.classList.remove('is-reading-mobile-tabs');
-      readingView.classList.remove('is-mobile-tabs');
-      readingView.removeAttribute('data-mobile-tab');
-    }
-  }
-
-  bind();
-  evaluate();
-  var mql = window.matchMedia('(max-width:900px)');
-  if (mql.addEventListener) mql.addEventListener('change', evaluate);
-  else if (mql.addListener) mql.addListener(evaluate);
-  // iframe 内嵌时，监听外层窗口的尺寸/方向变化（外层才是真实设备宽度）
-  if (window.top && window.top !== window) {
-    try {
-      var tmql = window.top.matchMedia('(max-width:900px)');
-      if (tmql.addEventListener) tmql.addEventListener('change', evaluate);
-      else if (tmql.addListener) tmql.addListener(evaluate);
-    } catch(e){}
-  }
-}
 
 </script>
 
