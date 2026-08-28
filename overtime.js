@@ -202,10 +202,30 @@ function saveSettings() {
   SETTINGS.socialInsurance = parseFloat($("#setSocial").value) || 0;
   SETTINGS.housingFund = parseFloat($("#setFund").value) || 0;
   saveJSON(K_SET, SETTINGS);
+  // 关键：设置改了时薪相关参数后，回溯重算历史加班记录的 pay 字段。
+  // 避免「先录加班(0 元) → 后填基本工资 → 历史 pay 还是 0」的尴尬。
+  const n = recomputeOvertimeRecords();
   updateHourlyRateDisplay();
   $("#settingsStatus").textContent = "✅ 设置已保存";
+  if (n > 0) $("#settingsStatus").textContent += " · 已重算 " + n + " 条历史加班费";
   renderAll();
-  toast("设置已保存 ✓");
+  toast("设置已保存" + (n > 0 ? " · 重算 " + n + " 条" : "") + " ✓");
+}
+
+/* 回溯重算 RECORDS 中所有 status=pending 且未被手动改价(manualPay)的记录的 pay 字段 */
+function recomputeOvertimeRecords() {
+  let n = 0;
+  for (const r of RECORDS) {
+    if (r.status === "pending" && !r.manualPay) {
+      const t = TYPE_MAP[r.type];
+      if (t && t.paid) {
+        const newPay = Math.round(calcPay(r.type, r.hours, null) * 100) / 100;
+        if (Math.abs((r.pay || 0) - newPay) > 0.005) { r.pay = newPay; n++; }
+      }
+    }
+  }
+  if (n > 0) saveJSON(K_OT, RECORDS);
+  return n;
 }
 
 function resetSettings() {
@@ -464,7 +484,12 @@ function calcMonthSalary(year, month) {
   let otHours = 0, otPay = 0, compoffHours = 0, freeHours = 0;
   for (const r of recs) {
     const t = TYPE_MAP[r.type]; if (!t) continue;
-    if (t.paid) { otHours += r.hours; otPay += r.pay || 0; }
+    if (t.paid) {
+      otHours += r.hours;
+      // 即时按当前 SETTINGS 重算（手动改过金额的保留），
+      // 避免「先录加班、后填基本工资」导致历史 r.pay 一直 0
+      otPay += calcPay(r.type, r.hours, r.manualPay ? r.pay : null);
+    }
     else if (r.type === "compoff") compoffHours += r.hours;
     else if (r.type === "free") freeHours += r.hours;
   }
@@ -501,7 +526,7 @@ function renderMonthStats() {
   for (const r of RECORDS.filter(x => x.date.slice(0, 7) === prefix)) {
     const t = TYPE_MAP[r.type]; if (!t) continue;
     byType[r.type].hours += r.hours;
-    byType[r.type].pay += r.pay || 0;
+    byType[r.type].pay += calcPay(r.type, r.hours, r.manualPay ? r.pay : null);
     byType[r.type].count++;
   }
   const maxHours = Math.max(1, ...Object.values(byType).map(v => v.hours));
@@ -900,6 +925,8 @@ function bind() {
 /* ---------------- 初始化 ---------------- */
 function init() {
   bind();
+  // 启动时静默回填一次历史加班费（防御性：覆盖「先录加班、后设基本工资」或云端拉回旧数据留下的 0 元）
+  recomputeOvertimeRecords();
   renderStatPeriodSel();
   clearForm();
   showStatView("month");
