@@ -1255,7 +1255,11 @@ function buildArticleSentences() {
     for (var s = 0; s < sents.length; s++) {
       var text = sents[s];
       if (!text) continue;
-      result.push({ kind: tag, text: text });
+      // 二级切分：单句过长(>180字符)按标点/空格再切，规避 Chrome 长句 onend 提前(~15s)截断跳句
+      var sub = splitLongSentence(text, 180);
+      for (var ss = 0; ss < sub.length; ss++) {
+        if (sub[ss]) result.push({ kind: tag, text: sub[ss] });
+      }
     }
   }
   return result;
@@ -1312,6 +1316,39 @@ function splitSentencesFromText(txt) {
             .replace(/\s+/g, ' ')
             .trim();
   }).filter(Boolean);
+}
+
+/* 长句二级切分：单句超过 maxLen 时，先按强分隔符(,;:—-)切，仍有超长段再按空格切。
+   目的：避免单条 utterance 朗读超 ~15 秒触发 Chrome 的 onend 提前 bug（句子被截断跳句）。
+   不依赖 lookbehind，兼容所有浏览器。 */
+function splitLongSentence(text, maxLen) {
+  maxLen = maxLen || 180;
+  if (!text || text.length <= maxLen) return [text];
+  // 先按强分隔符把文本切成带分隔符的片段
+  var parts = text.split(/([,;:\u2014\-]+)/);
+  var buf = '';
+  var chunks = [];
+  for (var i = 0; i < parts.length; i++) {
+    buf += parts[i];
+    if (i % 2 === 1) { // 分隔符之后
+      if (buf.length >= maxLen / 2) { chunks.push(buf.trim()); buf = ''; }
+    }
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+  // 任一片段仍超长 → 按空格再切
+  var out = [];
+  for (var j = 0; j < chunks.length; j++) {
+    if (chunks[j].length <= maxLen) { out.push(chunks[j]); continue; }
+    var words = chunks[j].split(/(\s+)/);
+    var cur = '';
+    for (var k = 0; k < words.length; k++) {
+      if (cur.length + words[k].length > maxLen && cur.length > 0) {
+        out.push(cur.trim()); cur = words[k];
+      } else { cur += words[k]; }
+    }
+    if (cur.trim()) out.push(cur.trim());
+  }
+  return out.length ? out : [text];
 }
 
 function wrapArticleWords() {
@@ -1744,17 +1781,19 @@ function speakArticleFrom(startIdx) {
     u.onend = advanceToNext;
     u.onerror = advanceToNext;
     window.speechSynthesis.speak(u);
-    // 兜底：部分桌面浏览器对较长句子偶尔不触发 onend。按"字符数/速率 × 1000ms"估算上限，
-    // 超时则强制 cancel + 进入下一句，避免朗读卡在某一句。仅在播放中(state==='playing')生效。
-    var estimatedMs = Math.max(2500, Math.ceil((sents[i].text.length / 17) * 1000 / rate) + 1200);
+    // 看门狗(watch-dog)：仅当远超真实播放时长时才判定 TTS 卡死并跳过。
+    // 关键：正常句子完全靠 onend 推进，本定时器绝不会"抢跑"打断正在朗读的句子；
+    // 触发时还会二次确认 speechSynthesis.speaking 仍为 true（真卡死）才跳过，避免误判。
+    // 估算用保守的 12 字符/秒 + 2.5 倍安全系数 + 下限，确保真实 onend 永远先于本定时器到达。
+    var hardMs = Math.max(20000, Math.ceil((sents[i].text.length / 12) * 1000 / rate * 2.5) + 8000);
     if (window.__articleAudio && window.__articleAudio.__ttsTimer) clearTimeout(window.__articleAudio.__ttsTimer);
     window.__articleAudio.__ttsTimer = setTimeout(function(){
       if (advanced) return;
-      if (window.__articleAudio && window.__articleAudio.state !== 'playing') return;
       if (window.__audioSession !== mySession) return;
-      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e){}
+      if (!window.speechSynthesis || !window.speechSynthesis.speaking) return; // 已正常结束，忽略
+      try { window.speechSynthesis.cancel(); } catch(e){}
       advanceToNext();
-    }, estimatedMs);
+    }, hardMs);
   }
 
   window.__articleAudio = { state: 'playing', sentences: sents, idx: startIdx, rate: rate };
@@ -1805,15 +1844,15 @@ function restartFrom(i) {
     u.onend = advanceToNextR;
     u.onerror = advanceToNextR;
     window.speechSynthesis.speak(u);
-    var em2 = Math.max(2500, Math.ceil((window.__articleSentences[k].text.length / 17) * 1000 / window.__articleAudio.rate) + 1200);
+    var hardMsR = Math.max(20000, Math.ceil((window.__articleSentences[k].text.length / 12) * 1000 / window.__articleAudio.rate * 2.5) + 8000);
     if (window.__articleAudio && window.__articleAudio.__ttsTimer) clearTimeout(window.__articleAudio.__ttsTimer);
     window.__articleAudio.__ttsTimer = setTimeout(function(){
       if (advancedR) return;
-      if (window.__articleAudio && window.__articleAudio.state !== 'playing') return;
       if (window.__audioSession !== mySession) return;
-      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch(e){}
+      if (!window.speechSynthesis || !window.speechSynthesis.speaking) return;
+      try { window.speechSynthesis.cancel(); } catch(e){}
       advanceToNextR();
-    }, em2);
+    }, hardMsR);
   })(i);
 }
 
