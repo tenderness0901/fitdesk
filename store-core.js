@@ -1,17 +1,23 @@
 /* ============================================================
- * FitDesk 共享存储核心（fitdesk-store.js）
+ * FitDesk 统一存储核心（store-core.js）
  * ------------------------------------------------------------
  * 主工作台(index.html)与独立模块页(overtime.html / reading.html)
- * 部署在同源 GitHub Pages 下，共享同一份 localStorage(key: fitdesk:v1)。
+ * 共用本文件作为【唯一】store 来源，消除此前 app.js 与 fitdesk-store.js
+ * 两份平行实现的"未来分叉"风险。index.html 在 app.js 之前加载本文件；
+ * overtime.html / reading.html 在本文件之后加载各自的业务脚本。
+ *
  * 引入本文件后，加班台账 / 英语精读的数据统一收拢进 S.overtime / S.reading，
  * 从而被「自动备份(exportAll)」与「云同步(syncPush/pull)」一次覆盖。
  *
  * 关键约定：
  *  - 模块页保存时调用 persistOvertime() / persistReading()，它们会把子对象
- *    写回 S 并触发 save()(含 rotateBackup + schedulePush 云同步)。
+ *    写回 S 并触发 save()(含 rotateBackup + 自动云同步)。
  *  - 旧版独立键(fitdesk:overtime:* / fitdesk:reading:*)在首次加载时自动迁移进 S。
  *  - 本文件不定义 $ / toast / esc 等工具（由各页面自带），避免变量冲突。
+ *  - 同步策略(#6 优化)：编辑时只 push 不 pull（防覆盖）；周期 60s 拉取 +
+ *    visibilitychange 触发 + Bearer token + 本地版本号(S._ver)防冲突。
  * ============================================================ */
+"use strict";
 const KEY = "fitdesk:v1";
 const BAK_KEYS = ["fitdesk:v1:b0", "fitdesk:v1:b1", "fitdesk:v1:b2"];
 
@@ -106,12 +112,12 @@ function load() {
 
 let S = load();
 
-function save() { rotateBackup(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.error("FitDesk save failed", e); } schedulePush(); }
+function save() { rotateBackup(); S._ver = Math.max(Date.now(), (S._ver || 0) + 1); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.error("FitDesk save failed", e); } schedulePush(); }
 let _pushTimer = null;
 function schedulePush() {
   if (!S.sync || !S.sync.auto || !S.sync.token || !S.sync.owner || !S.sync.repo) return;
   clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(syncNow, 1000);
+  _pushTimer = setTimeout(syncPush, 1000);
 }
 async function syncSpace(pass) {
   const d = new TextEncoder().encode(pass || "default");
@@ -218,7 +224,7 @@ function setSyncStatus(msg, ok) {
 }
 function _ghHeaders(token) {
   return {
-    "Authorization": "token " + token,
+    "Authorization": "Bearer " + token,
     "Accept": "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "Content-Type": "application/json"
@@ -234,13 +240,15 @@ async function syncPush() {
     const url = "https://api.github.com/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + path;
     let sha = null;
     try { const meta = await fetch(url, { headers: _ghHeaders(cfg.token) }); if (meta.ok) { const m = await meta.json(); sha = m.sha; } } catch (e) {}
-    const payload = JSON.stringify({ updatedAt: Date.now(), data: S });
+    if (!S._ver) S._ver = Date.now();
+    const payload = JSON.stringify({ ver: S._ver, updatedAt: Date.now(), data: S });
     const r = await fetch(url, {
       method: "PUT",
       headers: _ghHeaders(cfg.token),
       body: JSON.stringify({ message: "FitDesk sync " + new Date().toISOString(), content: _utf8ToB64(payload), sha })
     });
     if (!r.ok) { const err = await r.json().catch(() => ({})); throw new Error((err && err.message) || ("HTTP " + r.status)); }
+    S._syncVer = S._ver;
     S._syncAt = Date.now();
     localStorage.setItem(KEY, JSON.stringify(S));
     setSyncStatus("已上传 · " + new Date(S._syncAt).toLocaleString("zh-CN"), true);
@@ -258,14 +266,18 @@ async function syncPull() {
     const j = await r.json();
     const raw = _b64ToUtf8(j.content || "");
     const payload = raw ? JSON.parse(raw) : null;
-    if (payload && payload.updatedAt && payload.updatedAt !== S._syncAt && payload.data) {
+    const remoteVer = payload ? payload.ver : undefined;
+    const remoteUpd = payload ? payload.updatedAt : 0;
+    const hasNew = remoteVer === undefined ? (remoteUpd && remoteUpd !== S._syncAt) : (remoteVer > (S._syncVer || 0));
+    if (payload && payload.data && hasNew) {
       S = mergeState(S, payload.data);
-      S._syncAt = payload.updatedAt;
+      S._syncVer = (remoteVer === undefined) ? remoteUpd : remoteVer;
+      S._syncAt = remoteUpd;
       localStorage.setItem(KEY, JSON.stringify(S));
       if (typeof renderCurrent === "function") renderCurrent();
-      setSyncStatus("已同步 · " + new Date(payload.updatedAt).toLocaleString("zh-CN"), true);
+      setSyncStatus("已同步 · " + new Date(remoteUpd).toLocaleString("zh-CN"), true);
     } else {
-      setSyncStatus("已是最新 · " + (payload && payload.updatedAt ? new Date(payload.updatedAt).toLocaleString("zh-CN") : ""), true);
+      setSyncStatus("已是最新 · " + (remoteUpd ? new Date(remoteUpd).toLocaleString("zh-CN") : ""), true);
     }
   } catch (e) { setSyncStatus("拉取失败：" + e.message, false); }
 }
@@ -290,4 +302,21 @@ function persistReading() {
     settings: (typeof SETTINGS !== "undefined" ? SETTINGS : {})
   };
   save();
+}
+
+/* ===== 自动同步调度（统一在 store-core 管理，避免多页面重复轮询 #6 优化） ===== */
+if (typeof document !== "undefined") {
+  // 周期拉取：60 秒一次（仅在已开启自动同步且配置完整时）
+  setInterval(function () {
+    if (S.sync && S.sync.auto && S.sync.token && S.sync.owner && S.sync.repo) syncPull();
+  }, 60000);
+  // 切回前台时主动拉取一次（5 秒节流，避免频繁触发）
+  var _lastVisPull = 0;
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    var now = Date.now();
+    if (now - _lastVisPull < 5000) return;
+    _lastVisPull = now;
+    if (S.sync && S.sync.auto && S.sync.token && S.sync.owner && S.sync.repo) syncPull();
+  });
 }

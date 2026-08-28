@@ -27,7 +27,7 @@ function normW(w) { return w.toLowerCase().replace(/[^a-z]/g, ""); }
 /* ---------------- 存储 ---------------- */
 const K_LIB = "fitdesk:reading:lib", K_VOCAB = "fitdesk:reading:vocab",
   K_CHECK = "fitdesk:reading:checkin", K_SET = "fitdesk:reading:settings";
-/* 收拢到 S：旧独立键(fitdesk:reading:*)路由到全局 S.reading（fitdesk-store.js 加载后可用） */
+/* 收拢到 S：旧独立键(fitdesk:reading:*)路由到全局 S.reading（store-core.js 加载后可用） */
 const __RD_MAP = { "fitdesk:reading:lib": "lib", "fitdesk:reading:vocab": "vocab", "fitdesk:reading:checkin": "checkins", "fitdesk:reading:settings": "settings" };
 function loadJSON(key, def) {
   if (__RD_MAP[key] !== undefined) return (S.reading && S.reading[__RD_MAP[key]] !== undefined) ? S.reading[__RD_MAP[key]] : def;

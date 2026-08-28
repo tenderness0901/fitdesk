@@ -25,7 +25,7 @@ const K_SAL = "fitdesk:overtime:salaries";
 const K_SET = "fitdesk:overtime:settings";
 const K_ADJ = "fitdesk:overtime:adjusts";
 const K_LOCK = "fitdesk:overtime:lockedMonths";
-/* 收拢到 S：旧独立键(fitdesk:overtime:*)路由到全局 S.overtime（fitdesk-store.js 加载后可用） */
+/* 收拢到 S：旧独立键(fitdesk:overtime:*)路由到全局 S.overtime（store-core.js 加载后可用） */
 const __OT_MAP = { "fitdesk:overtime:records": "records", "fitdesk:overtime:salaries": "salaries", "fitdesk:overtime:settings": "settings", "fitdesk:overtime:adjusts": "adjusts", "fitdesk:overtime:lockedMonths": "locked" };
 function loadJSON(key, def) {
   if (__OT_MAP[key] !== undefined) return (S.overtime && S.overtime[__OT_MAP[key]] !== undefined) ? S.overtime[__OT_MAP[key]] : def;

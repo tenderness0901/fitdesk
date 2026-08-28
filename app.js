@@ -5,33 +5,9 @@
    ============================================================ */
 "use strict";
 
-const KEY = "fitdesk:v1";
 
-// 本地版本历史：每次保存前把当前值滚入备份环(b0=最近)，主数据损坏时回退到最近一份有效备份
-const BAK_KEYS = ["fitdesk:v1:b0", "fitdesk:v1:b1", "fitdesk:v1:b2"];
-function rotateBackup() {
-  try {
-    const cur = localStorage.getItem(KEY);
-    if (!cur) return;
-    const b0 = localStorage.getItem(BAK_KEYS[0]);
-    const b1 = localStorage.getItem(BAK_KEYS[1]);
-    if (b1) localStorage.setItem(BAK_KEYS[2], b1);
-    if (b0) localStorage.setItem(BAK_KEYS[1], b0);
-    localStorage.setItem(BAK_KEYS[0], cur);
-  } catch (e) {}
-}
-function recoverFromBackup() {
-  for (const k of BAK_KEYS) {
-    try {
-      const b = localStorage.getItem(k);
-      if (!b) continue;
-      const p = JSON.parse(b);
-      if (p && typeof p === "object") { console.warn("FitDesk: 主数据损坏，已从本地备份恢复 ->", k); return p; }
-    } catch (e) {}
-  }
-  return null;
-}
-
+/* 状态/存储核心已抽到 store-core.js（与 overtime.html / reading.html 共用单一 store 来源），
+   由 index.html 在 app.js 之前加载。本文件只保留主工作台 UI 逻辑。 */
 /* ---------- 运动 MET 参考表（Compendium of Physical Activities 近似） ---------- */
 const EXERCISES = [
   { name: "跑步(慢跑 ~8km/h)", met: 8.3 },
@@ -277,258 +253,6 @@ function metOf(name) {
   return 0;
 }
 
-/* ---------- 状态 ---------- */
-let S = load();
-
-function load() {
-  let s;
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) s = JSON.parse(raw);
-  } catch (e) { s = null; }
-  if (!s || typeof s !== "object") s = recoverFromBackup();
-  if (!s || typeof s !== "object") s = { profile: null, exercises: [], foods: [], weights: [], resources: [], goals: [], reminds: [], checkins: [], trackers: [], english: [], pantry: [], word1800: { cards: {}, lastDay: "", newStudiedToday: 0 } };
-  // 兼容旧数据：打卡改为 {date,cat} 结构，运动记录补 cat 字段，新增各模块资源
-  s.checkins = (s.checkins || []).map(c => typeof c === "string" ? { date: c, cat: "gym" } : c);
-  s.exercises = (s.exercises || []).map(e => e.cat ? e : { ...e, cat: "gym" });
-  s.fitLinks = s.fitLinks || {};
-  s.posturePlan = s.posturePlan || { startDate: todayStr(), completed: [] };
-  s.antiMenu = s.antiMenu || null;
-  s.word1800 = s.word1800 || { cards: {}, lastDay: "", newStudiedToday: 0 };
-  s.sync = {
-    owner: (s.sync && typeof s.sync === "object" && s.sync.owner) || "",
-    repo: (s.sync && typeof s.sync === "object" && s.sync.repo) || "fitdesk-sync",
-    token: (s.sync && typeof s.sync === "object" && s.sync.token) || "",
-    pass: (s.sync && typeof s.sync === "object" && s.sync.pass) || "",
-    auto: !!(s.sync && typeof s.sync === "object" && s.sync.auto)
-  };
-  // 收拢：旧独立键(fitdesk:overtime:* / fitdesk:reading:*)迁移进 S.overtime / S.reading
-  migrateOvertimeReading(s);
-  s._tomb = s._tomb || {}; // 墓碑表：id -> 删除时间(ms)，使删除可通过同步传播
-  return s;
-}
-function save() { rotateBackup(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.error("FitDesk save failed", e); } schedulePush(); }
-let _pushTimer = null;
-function schedulePush() {
-  if (!S.sync || !S.sync.auto || !S.sync.token || !S.sync.owner || !S.sync.repo) return;
-  clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(syncNow, 1000);
-}
-async function syncSpace(pass) {
-  const d = new TextEncoder().encode(pass || "default");
-  const h = await crypto.subtle.digest("SHA-256", d);
-  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, "0")).join("");
-}
-// ===== 按记录版本的同步合并 =====
-// 核心：每条记录带 updatedAt(ms)，同 id 取较新者；删除用墓碑表(_tomb)传播。
-function recTs(r) { return (r && r.updatedAt) || 0; }
-
-// 同 id 两条记录取较新者；平局取未删除的，再平局取 local(a)
-function pickRec(a, b) {
-  if (!a) return b; if (!b) return a;
-  const ta = recTs(a), tb = recTs(b);
-  if (ta !== tb) return ta > tb ? a : b;
-  if (!!a._deleted !== !!b._deleted) return a._deleted ? b : a;
-  return a;
-}
-
-// 按 id 版本合并两数组；无 id 的本地记录原样保留（不跨端去重，避免静默丢弃）
-function mergeArrById(L, R) {
-  const m = new Map();
-  (L || []).forEach((x) => { if (x && x.id) m.set(x.id, x); });
-  (R || []).forEach((x) => { if (x && x.id) m.set(x.id, pickRec(m.get(x.id), x)); });
-  const noId = (L || []).filter((x) => x && !x.id);
-  return [...m.values(), ...noId];
-}
-
-// 应用墓碑：删除时间晚于(等于)记录最后编辑时间的，视为已删除
-function applyTomb(arr, tomb) {
-  if (!Array.isArray(arr) || !tomb) return arr;
-  return arr.filter((x) => !(x && x.id && tomb[x.id] && recTs(x) <= tomb[x.id]));
-}
-
-// 删除一条记录：物理移除 + 写入墓碑表（删除可通过同步传播）
-function delRec(arr, id) {
-  if (!Array.isArray(arr)) return;
-  const i = arr.findIndex((x) => x && x.id === id);
-  if (i < 0) return;
-  const rec = arr[i];
-  S._tomb = S._tomb || {};
-  S._tomb[id] = Math.max(S._tomb[id] || 0, rec.updatedAt || Date.now());
-  arr.splice(i, 1);
-}
-
-// 旧独立键 -> S.overtime / S.reading 的一次性迁移（首次打开新版自动执行，迁移后删除旧键）
-function migrateOvertimeReading(s) {
-  const O = { records: "fitdesk:overtime:records", salaries: "fitdesk:overtime:salaries", settings: "fitdesk:overtime:settings", adjusts: "fitdesk:overtime:adjusts", locked: "fitdesk:overtime:lockedMonths" };
-  if (!s.overtime || !s.overtime.records) {
-    const o = { records: [], salaries: [], settings: {}, adjusts: [], locked: [] };
-    Object.keys(O).forEach((k) => { const raw = localStorage.getItem(O[k]); if (raw) { try { o[k] = JSON.parse(raw); localStorage.removeItem(O[k]); } catch (e) {} } });
-    o.records = (o.records || []).map((r) => (r && !r.updatedAt) ? Object.assign({}, r, { updatedAt: r.createdAt ? Date.parse(r.createdAt) : Date.now() }) : r);
-    o.salaries = (o.salaries || []).map((r) => (r && !r.updatedAt) ? Object.assign({}, r, { updatedAt: r.createdAt ? Date.parse(r.createdAt) : Date.now() }) : r);
-    s.overtime = o;
-  }
-  const R = { lib: "fitdesk:reading:lib", vocab: "fitdesk:reading:vocab", checkins: "fitdesk:reading:checkin", settings: "fitdesk:reading:settings" };
-  if (!s.reading || !s.reading.lib) {
-    const r = { lib: [], vocab: [], checkins: [], settings: {} };
-    Object.keys(R).forEach((k) => { const raw = localStorage.getItem(R[k]); if (raw) { try { r[k] = JSON.parse(raw); localStorage.removeItem(R[k]); } catch (e) {} } });
-    r.vocab = (r.vocab || []).map((v) => (v && !v.updatedAt) ? Object.assign({}, v, { updatedAt: v.nextReview ? Date.parse(v.nextReview) : Date.now() }) : v);
-    s.reading = r;
-  }
-  return s;
-}
-function mergeArrByKey(L, R, key) {
-  const m = new Map();
-  (L || []).forEach((x) => { if (x && x[key]) m.set(x[key], x); });
-  (R || []).forEach((x) => { if (x && x[key]) m.set(x[key], pickRec(m.get(x[key]), x)); });
-  const noKey = (L || []).filter((x) => x && !x[key]);
-  return [...m.values(), ...noKey];
-}
-function mergeOvertime(L, R) {
-  L = L || {}; R = R || {};
-  return {
-    records: mergeArrById(L.records, R.records),
-    salaries: mergeArrById(L.salaries, R.salaries),
-    adjusts: mergeArrByKey(L.adjusts, R.adjusts, "month"),
-    locked: [...new Set([...(L.locked || []), ...(R.locked || [])])],
-    settings: (R.settings && Object.keys(R.settings).length) ? R.settings : (L.settings || {})
-  };
-}
-function mergeReading(L, R) {
-  L = L || {}; R = R || {};
-  return {
-    lib: mergeArrById(L.lib, R.lib),
-    vocab: mergeArrByKey(L.vocab, R.vocab, "key"),
-    checkins: [...new Set([...(L.checkins || []), ...(R.checkins || [])])],
-    settings: (R.settings && Object.keys(R.settings).length) ? R.settings : (L.settings || {})
-  };
-}
-
-// 多端安全合并：按记录版本(updatedAt)合并，删除用墓碑传播；保留本机同步配置。
-function mergeState(local, remote) {
-  if (!remote || typeof remote !== "object") return local;
-  const out = JSON.parse(JSON.stringify(local));
-  const arrById = ["exercises", "foods", "weights", "resources", "goals", "reminds", "trackers", "english", "pantry"];
-  arrById.forEach((f) => { out[f] = mergeArrById(local[f], remote[f]); });
-  // 打卡按 date|cat 合并（无 id）
-  const ck = new Map();
-  (local.checkins || []).forEach((c) => ck.set((c.date || "") + "|" + (c.cat || ""), c));
-  (remote.checkins || []).forEach((c) => ck.set((c.date || "") + "|" + (c.cat || ""), c));
-  out.checkins = [...ck.values()];
-  // fitLinks 按分类、按 id 版本合并
-  const cats = new Set([...Object.keys(local.fitLinks || {}), ...Object.keys(remote.fitLinks || {})]);
-  out.fitLinks = out.fitLinks || {};
-  cats.forEach((cat) => { out.fitLinks[cat] = mergeArrById(local.fitLinks && local.fitLinks[cat], remote.fitLinks && remote.fitLinks[cat]); });
-  // 合并墓碑表（取较大删除时间）
-  const tomb = {};
-  const allKeys = new Set([...Object.keys(local._tomb || {}), ...Object.keys(remote._tomb || {})]);
-  allKeys.forEach((k) => { tomb[k] = Math.max((local._tomb && local._tomb[k]) || 0, (remote._tomb && remote._tomb[k]) || 0); });
-  out._tomb = tomb;
-  // 应用墓碑：已传播的删除从各数组合并结果中剔除
-  arrById.forEach((f) => { out[f] = applyTomb(out[f], out._tomb); });
-  cats.forEach((cat) => { if (out.fitLinks[cat]) out.fitLinks[cat] = applyTomb(out.fitLinks[cat], out._tomb); });
-  // 对象字段仅当远端有值才覆盖
-  ["profile", "posturePlan", "antiMenu"].forEach((f) => {
-    if (remote[f] !== undefined && remote[f] !== null) out[f] = remote[f];
-  });
-  if (remote.word1800 && remote.word1800.cards) {
-    out.word1800 = out.word1800 || { cards: {}, lastDay: "", newStudiedToday: 0 };
-    const rc = remote.word1800.cards;
-    Object.keys(rc).forEach((k) => {
-      const L = out.word1800.cards[k], R = rc[k];
-      if (!L) out.word1800.cards[k] = R;
-      else out.word1800.cards[k] = {
-        box: Math.max(L.box || 0, R.box || 0),
-        due: (L.due && R.due) ? (L.due < R.due ? L.due : R.due) : (L.due || R.due),
-        reps: Math.max(L.reps || 0, R.reps || 0)
-      };
-    });
-  }
-  // 收拢模块：overtime / reading 细粒度合并（与 store 同源逻辑）
-  out.overtime = mergeOvertime(local.overtime, remote.overtime);
-  out.reading = mergeReading(local.reading, remote.reading);
-  out.sync = local.sync;
-  return out;
-}
-function setSyncStatus(msg, ok) {
-  const el = $("#syncStatus");
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = ok === undefined ? "var(--muted)" : (ok ? "var(--brand2)" : "var(--warn)");
-}
-function _ghHeaders(token) {
-  return {
-    "Authorization": "token " + token,
-    "Accept": "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "Content-Type": "application/json"
-  };
-}
-function _utf8ToB64(str) {
-  try { return btoa(unescape(encodeURIComponent(str))); }
-  catch (e) { return btoa(str); }
-}
-function _b64ToUtf8(str) {
-  try { return decodeURIComponent(escape(atob(str))); }
-  catch (e) { return atob(str); }
-}
-async function syncPush() {
-  const cfg = S.sync; if (!cfg || !cfg.token || !cfg.owner || !cfg.repo) return;
-  try {
-    const space = await syncSpace(cfg.pass);
-    const path = "data/" + space + ".json";
-    const url = "https://api.github.com/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + path;
-    let sha = null;
-    try {
-      const meta = await fetch(url, { headers: _ghHeaders(cfg.token) });
-      if (meta.ok) { const m = await meta.json(); sha = m.sha; }
-    } catch (e) {}
-    const payload = JSON.stringify({ updatedAt: Date.now(), data: S });
-    const r = await fetch(url, {
-      method: "PUT",
-      headers: _ghHeaders(cfg.token),
-      body: JSON.stringify({ message: "FitDesk sync " + new Date().toISOString(), content: _utf8ToB64(payload), sha })
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error((err && err.message) || ("HTTP " + r.status));
-    }
-    S._syncAt = Date.now();
-    localStorage.setItem(KEY, JSON.stringify(S));
-    setSyncStatus("已上传 · " + new Date(S._syncAt).toLocaleString("zh-CN"), true);
-  } catch (e) { setSyncStatus("上传失败：" + e.message, false); }
-}
-async function syncPull() {
-  const cfg = S.sync; if (!cfg || !cfg.token || !cfg.owner || !cfg.repo) return;
-  try {
-    const space = await syncSpace(cfg.pass);
-    const path = "data/" + space + ".json";
-    const url = "https://api.github.com/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + path;
-    const r = await fetch(url, { headers: _ghHeaders(cfg.token) });
-    if (r.status === 404) { setSyncStatus("云端暂无数据，点「立即同步」上传首次数据", true); return; }
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error((err && err.message) || ("HTTP " + r.status));
-    }
-    const j = await r.json();
-    const raw = _b64ToUtf8(j.content || "");
-    const payload = raw ? JSON.parse(raw) : null;
-    if (payload && payload.updatedAt && payload.updatedAt !== S._syncAt && payload.data) {
-      S = mergeState(S, payload.data);
-      S._syncAt = payload.updatedAt;
-      localStorage.setItem(KEY, JSON.stringify(S));
-      renderCurrent();
-      setSyncStatus("已同步 · " + new Date(payload.updatedAt).toLocaleString("zh-CN"), true);
-    } else {
-      setSyncStatus("已是最新 · " + (payload && payload.updatedAt ? new Date(payload.updatedAt).toLocaleString("zh-CN") : ""), true);
-    }
-  } catch (e) { setSyncStatus("拉取失败：" + e.message, false); }
-}
-async function syncNow() {
-  setSyncStatus("同步中…");
-  await syncPull();
-  await syncPush();
-}
 
 /* ---------- 工具 ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -734,12 +458,12 @@ function fitOverviewHTML() {
    </div>
    <script>
    (function renderModuleKcalChart(){
-     if (typeof Chart === 'undefined') return;
      const ctx = document.getElementById('moduleKcalChart'); if (!ctx) return;
-     if (charts.moduleKcal) { charts.moduleKcal.destroy(); }
      const data = FIT_CATS.map(c => ({ name: c.name, val: catMonthKcal(c.id, ym) })).filter(x => x.val > 0);
      const labels = data.map(x => x.name);
      const vals = data.map(x => x.val);
+     if (typeof Chart === 'undefined') { fallbackModuleKcal(ctx, labels, vals); return; }
+     if (charts.moduleKcal) { charts.moduleKcal.destroy(); }
      const palette = ['#ff7a59', '#5c8dff', '#3ecf8e', '#ffb020', '#a259ff'];
      charts.moduleKcal = new Chart(ctx, {
        type: 'doughnut',
@@ -1557,9 +1281,78 @@ function renderTodayOverview() {
   setToCell("toNutrition", kcal + " kcal", "", sub);
 }
 
+function getCSSColor(c) {
+  if (typeof c !== "string") return "#888";
+  if (c.indexOf("var(") === 0) {
+    const name = c.slice(4, -1).trim();
+    try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888"; } catch (e) { return "#888"; }
+  }
+  return c;
+}
+// Chart.js 加载失败时的轻量降级：用原生 canvas 直接绘制，避免页面报错白屏（#7 工程优化）
+function fallbackDrawChart(id, type, labels, data, label, color) {
+  const cv = document.getElementById(id); if (!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 300, H = cv.clientHeight || 160;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); if (!ctx) return;
+  ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+  const padL = 36, padB = 22, padT = 10, padR = 10;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxV = Math.max.apply(null, data.concat([1]));
+  const minV = type === "line" ? Math.min.apply(null, data.concat([0])) : 0;
+  const range = (maxV - minV) || 1;
+  ctx.strokeStyle = "#ddd"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH); ctx.stroke();
+  const col = getCSSColor(color);
+  const n = data.length;
+  if (type === "bar") {
+    const bw = (plotW / n) * 0.7;
+    data.forEach(function (v, i) {
+      const x = padL + (plotW / n) * i + (plotW / n - bw) / 2;
+      const h = (v - minV) / range * plotH;
+      ctx.fillStyle = col; ctx.fillRect(x, padT + plotH - h, bw, h);
+    });
+  } else {
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+    data.forEach(function (v, i) {
+      const x = padL + (n <= 1 ? plotW / 2 : plotW * i / (n - 1));
+      const y = padT + plotH - (v - minV) / range * plotH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#888"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+  const step = Math.ceil(n / 6) || 1;
+  labels.forEach(function (lb, i) {
+    if (i % step !== 0) return;
+    const x = padL + (type === "bar" ? (plotW / n) * (i + 0.5) : (n <= 1 ? plotW / 2 : plotW * i / (n - 1)));
+    ctx.fillText(String(lb).slice(-6), x, H - 6);
+  });
+}
+function fallbackModuleKcal(cv, labels, vals) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 260, H = cv.clientHeight || 200;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d"); if (!ctx) return;
+  ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+  const maxV = Math.max.apply(null, vals.concat([1]));
+  const rowH = H / Math.max(labels.length, 1);
+  const palette = ["#ff7a59", "#5c8dff", "#3ecf8e", "#ffb020", "#a259ff"];
+  labels.forEach(function (lb, i) {
+    const y = i * rowH + rowH / 2;
+    const bw = (vals[i] / maxV) * (W - 90);
+    ctx.fillStyle = palette[i % palette.length];
+    ctx.fillRect(80, y - 8, bw, 16);
+    ctx.fillStyle = "#444"; ctx.font = "11px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(lb, 4, y);
+    ctx.textAlign = "right"; ctx.fillText(String(vals[i]), 76, y);
+  });
+}
 function drawChart(id, type, labels, data, label, color) {
-  if (charts[id]) charts[id].destroy();
+  if (charts[id]) { try { charts[id].destroy(); } catch (e) {} charts[id] = null; }
   const ctx = $("#" + id); if (!ctx) return;
+  if (typeof Chart === "undefined") { fallbackDrawChart(id, type, labels, data, label, color); return; }
   charts[id] = new Chart(ctx, {
     type,
     data: { labels, datasets: [{ label, data, backgroundColor: color, borderColor: color, fill: type === "line", tension: .3 }] },
@@ -2698,7 +2491,23 @@ $("#syncSave").addEventListener("click", () => {
   else { setSyncStatus("已保存（未启用同步）"); toast("同步设置已保存"); }
 });
 $("#syncNow").addEventListener("click", syncNow);
-setInterval(() => { if (S.sync && S.sync.auto && S.sync.token && S.sync.owner && S.sync.repo) syncPull(); }, 15000);
+// 自动同步周期轮询已统一由 store-core.js 管理（60s + visibilitychange），此处不再重复设置。
+
+/* ---------- PWA 安装引导（#7 工程优化） ---------- */
+let _deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", function (e) {
+  e.preventDefault();
+  _deferredPrompt = e;
+  const btn = document.getElementById("btnInstall");
+  if (btn) btn.style.display = "";
+});
+const _installBtn = document.getElementById("btnInstall");
+if (_installBtn) _installBtn.addEventListener("click", function () {
+  if (!_deferredPrompt) { toast("当前环境不支持安装，或已安装"); return; }
+  _deferredPrompt.prompt();
+  _deferredPrompt.userChoice.then(function () { _deferredPrompt = null; _installBtn.style.display = "none"; });
+});
+window.addEventListener("appinstalled", function () { const b = document.getElementById("btnInstall"); if (b) b.style.display = "none"; });
 
 /* ---------- 初始化 ---------- */
 function boot() {
