@@ -205,6 +205,42 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica N
 .word-context{font-size:12px;color:#8b95a5;margin-top:5px;font-style:italic;line-height:1.4}
 .word-remove{position:absolute;top:6px;right:6px;width:22px;height:22px;border:none;background:none;cursor:pointer;color:#bbb;font-size:18px;line-height:1;border-radius:4px;transition:all .15s}
 .word-remove:hover{color:#e03131;background:#fee}
+
+/* 单词笔记（用户备注） */
+.word-note-btn{
+  width:24px;height:24px;border:none;background:transparent;color:#999;cursor:pointer;
+  font-size:14px;display:flex;align-items:center;justify-content:center;border-radius:50%;
+  flex-shrink:0;transition:all .15s;padding:0;
+}
+.word-note-btn:hover{color:var(--navy);background:#fff7e6}
+.word-note-btn.has-note{color:var(--leaf)}
+.word-note{
+  margin-top:6px;padding:6px 8px;background:rgba(73,189,104,.10);
+  border-left:3px solid var(--leaf);border-radius:0 6px 6px 0;
+  font-size:12px;color:#2a5f3a;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word;cursor:pointer;
+}
+.word-note:hover{background:rgba(73,189,104,.18)}
+.word-note::before{content:"📝 ";opacity:.85}
+.word-note-edit{
+  margin-top:6px;padding:8px;
+  border:1.5px dashed var(--navy);border-radius:8px;background:#fffbe9;
+}
+.word-note-edit textarea{
+  width:100%;min-height:64px;resize:vertical;
+  font-family:inherit;font-size:12px;line-height:1.5;
+  padding:6px 8px;border:1px solid rgba(23,59,120,.3);border-radius:5px;
+  background:var(--white);color:var(--ink);box-sizing:border-box;outline:none;
+}
+.word-note-edit textarea:focus{border-color:var(--navy);background:#fffdf6}
+.word-note-edit-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
+.word-note-edit-actions button{
+  padding:4px 12px;font-size:11.5px;font-weight:700;
+  border:1.5px solid var(--navy);border-radius:6px;cursor:pointer;
+  background:var(--white);color:var(--navy);
+}
+.word-note-edit-actions button.primary{background:var(--navy);color:var(--cream)}
+.word-note-edit-actions button:hover{transform:translate(-1px,-1px);box-shadow:1px 1px 0 var(--navy)}
 .empty-hint{color:#8b95a5;font-size:13px;padding:20px 8px;text-align:center;line-height:1.6}
 
 /* ===== WORD HIGHLIGHT ===== */
@@ -1030,7 +1066,7 @@ function addToWordBank(text, dictOrTranslation, context) {
   }
   wordBank.push({
     text, translation: trans, context: (context||'').substring(0,200),
-    pos, phonetic, audio, ts: Date.now()
+    pos, phonetic, audio, ts: Date.now(), note: ''
   });
   saveWordBank(); renderWordBank(); renderArticleWithHighlights();
 }
@@ -1045,13 +1081,15 @@ function renderWordBank() {
     var metaHtml = '';
     if (w.pos) metaHtml += '<span class="word-pos">' + esc(w.pos) + '</span>';
     if (w.phonetic) metaHtml += '<span class="word-phonetic">' + esc(w.phonetic) + '</span>';
-    metaHtml += '<button class="word-audio" data-idx="' + i + '" title="\u64ad\u653e\u53d1\u97f3">\u25b6</button>';
+    metaHtml += '<button class="word-audio" data-idx="' + i + '" title="播放发音">▶</button>';
+    metaHtml += '<button class="word-note-btn' + (w.note ? ' has-note' : '') + '" data-idx="' + i + '" title="编辑笔记">✎</button>';
     return '<div class="word-card" data-idx="' + i + '">' +
       '<div class="word-text">' + esc(w.text) + '</div>' +
       '<div class="word-meta">' + metaHtml + '</div>' +
       '<div class="word-translation">' + esc(w.translation) + '</div>' +
       (w.context ? '<div class="word-context">' + esc(w.context) + '</div>' : '') +
-      '<button class="word-remove" data-idx="' + i + '" title="\u5220\u9664">\u00d7</button>' +
+      (w.note ? '<div class="word-note" data-idx="' + i + '" title="点击编辑">' + esc(w.note) + '</div>' : '') +
+      '<button class="word-remove" data-idx="' + i + '" title="删除">×</button>' +
     '</div>';
   }).join('');
 
@@ -1068,13 +1106,64 @@ function renderWordBank() {
       playWordAudio(parseInt(e.currentTarget.dataset.idx), e.currentTarget);
     });
   });
-  // 点击卡片正文（避开删除/播放按钮）→ 也播放
+  // 点击卡片正文（避开删除/播放/笔记按钮）→ 也播放
   $wordList.querySelectorAll('.word-card .word-text, .word-card .word-phonetic, .word-card .word-translation').forEach(el => {
     el.addEventListener('click', function() {
       var card = this.closest('.word-card');
       var idx = parseInt(card.dataset.idx);
       playWordAudio(idx, card.querySelector('.word-audio'));
     });
+  });
+  // 笔记按钮 / 已有笔记文本 → 打开编辑器
+  $wordList.querySelectorAll('.word-note-btn, .word-note').forEach(b => {
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      openWordNoteEditor(parseInt(e.currentTarget.dataset.idx));
+    });
+  });
+}
+
+// 打开单词笔记编辑器（inline 展开）
+function openWordNoteEditor(idx){
+  var entry = wordBank[idx];
+  if (!entry) return;
+  var card = $wordList.querySelector('.word-card[data-idx="' + idx + '"]');
+  if (!card) return;
+  // 关闭该卡片上的旧编辑器，避免叠加
+  var old = card.querySelector('.word-note-edit');
+  if (old) old.remove();
+  var editor = document.createElement('div');
+  editor.className = 'word-note-edit';
+  editor.innerHTML = '<textarea placeholder="写下你对 ' + esc(entry.text) + ' 的理解/记忆法…">' + esc(entry.note || '') + '</textarea>' +
+    '<div class="word-note-edit-actions">' +
+      '<button data-act="cancel">取消</button>' +
+      '<button class="primary" data-act="save">保存</button>' +
+    '</div>';
+  card.appendChild(editor);
+  var ta = editor.querySelector('textarea');
+  ta.focus();
+  // 把光标放到末尾
+  try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch(e){}
+  // 自适应高度
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(160, Math.max(64, ta.scrollHeight)) + 'px';
+  ta.addEventListener('input', function(){
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(160, Math.max(64, ta.scrollHeight)) + 'px';
+  });
+  editor.querySelector('[data-act="cancel"]').addEventListener('click', function(){
+    editor.remove();
+  });
+  editor.querySelector('[data-act="save"]').addEventListener('click', function(){
+    var v = ta.value.trim();
+    wordBank[idx].note = v;
+    saveWordBank();
+    renderWordBank();
+  });
+  // Esc 取消 / Ctrl+Enter 保存
+  ta.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape') { ev.preventDefault(); editor.remove(); }
+    else if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); editor.querySelector('[data-act="save"]').click(); }
   });
 }
 
@@ -1606,9 +1695,17 @@ function speakArticleFrom(startIdx) {
   if (!sents || !sents.length) return;
   var total = sents.length;
   var rate = parseFloat(document.getElementById('audio-speed').value) || 1.0;
+  // 防双触发：先 cancel 现有 speech，避免"上一句还没结束就 speak 新一句"导致 Chrome TTS 队列卡死
+  if (window.speechSynthesis) { try { window.speechSynthesis.cancel(); } catch(e){} }
   // 会话令牌：每次开始播放递增；旧 utterance 的 onend/onerror 若在新会话里回调会被忽略，避免"跳句"
   var mySession = (window.__audioSession || 0) + 1;
   window.__audioSession = mySession;
+  // voices ready 检查：Chrome/Edge 在 voiceschanged 之前 getVoices() 可能返回空数组，
+  // 直接 speak 会无声或卡住。空 voices + 未触发 voiceschanged 时给一个明确提示。
+  var voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  if (window.speechSynthesis && voices.length === 0 && !window.__voicesReadyNotified) {
+    setAudioStatus('⏳ 正在加载语音引擎…首次约需 1-2 秒', true);
+  }
 
   function loop(i) {
     if (!window.__articleAudio || window.__articleAudio.state === 'idle') return;
@@ -1649,7 +1746,7 @@ function speakArticleFrom(startIdx) {
     window.speechSynthesis.speak(u);
     // 兜底：部分桌面浏览器对较长句子偶尔不触发 onend。按"字符数/速率 × 1000ms"估算上限，
     // 超时则强制 cancel + 进入下一句，避免朗读卡在某一句。仅在播放中(state==='playing')生效。
-    var estimatedMs = Math.max(2500, Math.ceil((sents[i].text.length / 14) * 1000 / rate) + 1200);
+    var estimatedMs = Math.max(2500, Math.ceil((sents[i].text.length / 17) * 1000 / rate) + 1200);
     if (window.__articleAudio && window.__articleAudio.__ttsTimer) clearTimeout(window.__articleAudio.__ttsTimer);
     window.__articleAudio.__ttsTimer = setTimeout(function(){
       if (advanced) return;
@@ -1708,7 +1805,7 @@ function restartFrom(i) {
     u.onend = advanceToNextR;
     u.onerror = advanceToNextR;
     window.speechSynthesis.speak(u);
-    var em2 = Math.max(2500, Math.ceil((window.__articleSentences[k].text.length / 14) * 1000 / window.__articleAudio.rate) + 1200);
+    var em2 = Math.max(2500, Math.ceil((window.__articleSentences[k].text.length / 17) * 1000 / window.__articleAudio.rate) + 1200);
     if (window.__articleAudio && window.__articleAudio.__ttsTimer) clearTimeout(window.__articleAudio.__ttsTimer);
     window.__articleAudio.__ttsTimer = setTimeout(function(){
       if (advancedR) return;
@@ -1725,6 +1822,10 @@ function playArticle() {
     setAudioStatus('当前浏览器不支持语音', true);
     return;
   }
+  // 防抖：300ms 内重复点击视为同一次触发，避免 cancel+speak 竞态导致"卡在第一句"
+  var now = Date.now();
+  if (window.__playGuard && (now - window.__playGuard) < 300) return;
+  window.__playGuard = now;
   if (window.__articleAudio && window.__articleAudio.state === 'paused') {
     resumeArticle();
     return;
@@ -1745,6 +1846,20 @@ function playArticle() {
     setAudioStatus('🔁 从 A 段开始复读 ' + (startIdx+1) + '→' + (window.__abRepeat.b+1) + ' 段', true);
   }
   speakArticleFrom(startIdx);
+  // 注册一次 voiceschanged：Chrome/Edge 首次加载 voices 较慢，加载完后清掉提示
+  if (window.speechSynthesis && !window.__voicesChangeBound) {
+    window.__voicesChangeBound = true;
+    var bindVoicesReady = function(){
+      var vs = window.speechSynthesis.getVoices();
+      if (vs && vs.length) {
+        window.__voicesReadyNotified = true;
+        setAudioStatus(buildAudioStatus(), true);
+      }
+    };
+    try { window.speechSynthesis.addEventListener('voiceschanged', bindVoicesReady); } catch(e){
+      try { window.speechSynthesis.onvoiceschanged = bindVoicesReady; } catch(e2){}
+    }
+  }
 }
 
 function bindAudioPlayer() {
