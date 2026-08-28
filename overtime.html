@@ -190,8 +190,20 @@
       <h3>💰 工资实发对比</h3>
       <button class="btn sm" id="btnAddSalary">➕ 录入实发工资</button>
     </div>
-    <div id="salaryList" class="list ov-salary-list"></div>
+  <div id="salaryList" class="list ov-salary-list"></div>
+</div>
+
+<!-- ===================== 实发工资历史看板 ===================== -->
+<div class="card">
+  <div class="card-head">
+    <h3>📅 实发工资历史看板</h3>
+    <span class="hint" id="salaryHistoryHint">记录每月实际到手 · 可看历史所有月份</span>
   </div>
+  <div class="grid-3 compact ov-kpi" id="salaryKpi"></div>
+  <div class="ov-kpi-hint" id="salaryKpiHint">尚未录入任何月份的实发工资 —— 在上方「工资实发对比」点「➕ 录入实发工资」即可开始记录</div>
+  <div class="ov-sal-trend" id="salaryTrend"></div>
+  <div class="ov-salary-history" id="salaryHistoryList"></div>
+</div>
 
 </div>
 
@@ -301,6 +313,6 @@
 
 <div class="toast" id="toast"></div>
 <script src="fitdesk-store.js"></script>
-<script src="overtime.js?v=2026082706"></script>
+<script src="overtime.js?v=2026082801"></script>
 </body>
 </html>

@@ -663,6 +663,79 @@ function renderSalaryList() {
   }).join("");
 }
 
+/* ============================================================
+   实发工资历史看板（KPI 汇总 + 月度趋势 + 按月历史列表）
+   复用 SALARIES 数据（录入入口在「工资实发对比」模块），不新增存储。
+   关键：按月份倒序全量展示，看得见之前发放的所有月份，而非仅当月。
+   ============================================================ */
+function renderSalaryHistory() {
+  const kpiBox = $("#salaryKpi");
+  const trendBox = $("#salaryTrend");
+  const listBox = $("#salaryHistoryList");
+  const kpiHint = $("#salaryKpiHint");
+  if (!kpiBox || !trendBox || !listBox) return;
+
+  const list = SALARIES.slice().sort((a, b) => (b.year + b.month).localeCompare(a.year + a.month));
+  if (!list.length) {
+    kpiBox.innerHTML = "";
+    kpiHint.textContent = "尚未录入任何月份的实发工资 —— 在上方「工资实发对比」点「➕ 录入实发工资」即可开始记录";
+    trendBox.innerHTML = "";
+    listBox.innerHTML = '<div class="ov-empty">还没有任何月份的实发记录。录入后这里会按月展示历史趋势，所有已发放月份都看得见。</div>';
+    return;
+  }
+
+  // KPI 汇总
+  let total = 0, diffSum = 0;
+  list.forEach(s => {
+    const est = estimateMonthPay(s.year, s.month);
+    total += s.actual;
+    diffSum += s.actual - est;
+  });
+  const avg = total / list.length;
+  const avgDiff = diffSum / list.length;
+  const kpi = [
+    { v: list.length + " 个月", l: "已记录月份", sub: "历史实发" },
+    { v: "¥" + total.toFixed(0), l: "累计实发工资", sub: "所有已记录月份" },
+    { v: "¥" + avg.toFixed(0), l: "月均实发", sub: (avgDiff >= 0 ? "+" : "") + "¥" + avgDiff.toFixed(0) + " vs 预估" }
+  ];
+  kpiBox.innerHTML = kpi.map(item => '<div class="ov-stat"><div class="rs-v">' + item.v + '</div><div class="rs-l">' + item.l + '</div><div class="rs-sub">' + (item.sub || "") + "</div></div>").join("");
+  kpiHint.textContent = "共 " + list.length + " 个月份 · 累计 ¥" + total.toFixed(2) + " · 月均 ¥" + avg.toFixed(2);
+
+  // 月度趋势条（按实发金额比例）
+  const maxVal = Math.max(...list.map(s => s.actual), 1);
+  trendBox.innerHTML = list.map(s => {
+    const est = estimateMonthPay(s.year, s.month);
+    const diff = s.actual - est;
+    const pct = Math.max(4, Math.round(s.actual / maxVal * 100));
+    const diffStr = (diff >= 0 ? "+" : "") + "¥" + diff.toFixed(0);
+    const diffCls = diff >= 0 ? "pos" : "neg";
+    return '<div class="ov-tr-row">' +
+      '<span class="ov-tr-month">' + s.year + "-" + s.month + "</span>" +
+      '<div class="ov-tr-bar"><div class="ov-tr-bar-fill" style="width:' + pct + '%"></div></div>' +
+      '<span class="ov-tr-val">¥' + s.actual.toFixed(0) + "</span>" +
+      '<span class="ov-tr-diff ' + diffCls + '">' + diffStr + "</span>" +
+      "</div>";
+  }).join("");
+
+  // 按月历史列表（与「工资实发对比」共用编辑/删除事件委托）
+  listBox.innerHTML = list.map(s => {
+    const est = estimateMonthPay(s.year, s.month);
+    const diff = s.actual - est;
+    const diffStr = (diff >= 0 ? "+" : "") + diff.toFixed(2);
+    const diffCls = diff >= 0 ? "pos" : "neg";
+    return '<div class="ov-sal-row">' +
+      '<span class="ov-sal-month">' + s.year + "-" + s.month + "</span>" +
+      '<span class="ov-sal-est">预估：<b>¥' + est.toFixed(2) + "</b></span>" +
+      '<span class="ov-sal-act">实发：¥' + s.actual.toFixed(2) + "</span>" +
+      '<span class="ov-sal-diff ' + diffCls + '">差额：' + diffStr + "</span>" +
+      (s.diffNote ? '<div class="ov-sal-note">' + escapeHtml(s.diffNote) + "</div>" : "") +
+      '<div class="ov-sal-acts">' +
+      '<button class="btn sm" data-sal-act="edit" data-id="' + s.id + '">编辑</button>' +
+      '<button class="btn sm danger" data-sal-act="del" data-id="' + s.id + '">删</button>' +
+      "</div></div>";
+  }).join("");
+}
+
 function estimateMonthPay(year, month) {
   const s = calcMonthSalary(year, month);
   return s.net;
@@ -832,6 +905,7 @@ function renderAll() {
   renderList();
   renderMonthStats();
   renderSalaryList();
+  renderSalaryHistory();
   renderAdjustInputs();
 }
 

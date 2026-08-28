@@ -205,6 +205,25 @@
   pointer-events:auto !important;
 }
 
+/* ===== 实发工资历史看板 ===== */
+.ov-salary-history{display:flex;flex-direction:column;gap:10px;margin-top:8px;}
+.ov-sal-trend{display:flex;flex-direction:column;gap:8px;margin:14px 0 4px;}
+.ov-tr-row{
+  display:grid;grid-template-columns:64px 1fr 72px 64px;gap:8px;align-items:center;
+  font-size:12px;font-variant-numeric:tabular-nums;
+}
+.ov-tr-month{color:#a04e1c;font-weight:700;white-space:nowrap;font-size:12px;}
+.ov-tr-bar{height:18px;background:#f0f0f0;border-radius:99px;overflow:hidden;}
+.ov-tr-bar-fill{height:100%;background:linear-gradient(90deg,var(--primary),#ff9a59);border-radius:99px;transition:width .25s;}
+.ov-tr-val{color:#222;font-weight:700;text-align:right;}
+.ov-tr-diff{font-weight:700;text-align:right;}
+.ov-tr-diff.pos{color:#cf1322;}
+.ov-tr-diff.neg{color:#49bd68;}
+@media (max-width:640px){
+  .ov-tr-row{grid-template-columns:56px 1fr 58px 52px;font-size:11px;}
+  .ov-tr-month{font-size:11px;}
+}
+
 /* ===== 年度月度表格 ===== */
 .ov-monthly-table{font-size:13px;overflow-x:auto;}
 .ov-monthly-table table{width:100%;border-collapse:collapse;min-width:480px;}
