@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="FitDesk" />
 <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-  <link rel="stylesheet" href="styles.css?v=2026082711" />
+  <link rel="stylesheet" href="styles.css?v=2026082801" />
 <script>
 (function(){
   window._errs = [];
@@ -166,6 +166,28 @@
 
     <!-- 数据看板 -->
     <section class="module" id="m-dashboard">
+      <!-- 今日总览聚合卡 -->
+      <div class="card today-overview" id="todayOverview">
+        <div class="card-head"><h3>📌 今日总览</h3><span class="to-date" id="toDate"></span></div>
+        <div class="to-grid">
+          <div class="to-cell" id="toCheckin">
+            <div class="to-ico">🏋️</div><div class="to-label">运动打卡</div>
+            <div class="to-val">--</div><div class="to-sub"></div>
+          </div>
+          <div class="to-cell" id="toWords">
+            <div class="to-ico">📚</div><div class="to-label">待复习单词</div>
+            <div class="to-val">--</div><div class="to-sub"></div>
+          </div>
+          <div class="to-cell" id="toPantry">
+            <div class="to-ico">🥫</div><div class="to-label">临期食材</div>
+            <div class="to-val">--</div><div class="to-sub"></div>
+          </div>
+          <div class="to-cell" id="toNutrition">
+            <div class="to-ico">🍱</div><div class="to-label">今日热量</div>
+            <div class="to-val">--</div><div class="to-sub"></div>
+          </div>
+        </div>
+      </div>
       <div class="grid-4" id="kpiCards"></div>
       <div class="grid-2">
         <div class="card">
@@ -356,6 +378,14 @@
             </label>
           </div>
           <div class="row-2">
+            <label>条码（扫码枪/手动）<input type="text" id="pBarcode" placeholder="输入或扫码，可重复补货" /></label>
+            <label>拍照识别<input type="file" id="pPhoto" accept="image/*" capture="environment" /></label>
+          </div>
+          <div id="pPhotoPreviewWrap" style="display:none;margin-bottom:8px">
+            <img id="pPhotoPreview" alt="预览" style="max-height:80px;border-radius:8px;border:1px solid #eee" />
+            <button type="button" class="btn sm" id="pPhotoClear">移除照片</button>
+          </div>
+          <div class="row-2">
             <label>购买日期 <input type="date" id="pBuy" required /></label>
             <label>储存位置
               <input type="text" id="pStorage" list="storageList" placeholder="如 冷藏" />
@@ -380,6 +410,7 @@
             <label id="pShelfLabel">保质期(天) <input type="number" id="pShelf" min="1" step="1" placeholder="如 7" /></label>
             <label id="pExpLabel" class="disabled">到期日期 <input type="date" id="pExp" disabled /></label>
           </div>
+          <label>低库存提醒阈值（可选）<input type="number" id="pLow" min="0" step="0.01" placeholder="剩余数量低于此值时提示补货，如 1" /></label>
           <label>备注 <input type="text" id="pNote" placeholder="品牌、购买渠道、特殊储存要求等" /></label>
           <div id="pError" class="form-error" style="display:none"></div>
           <div class="form-actions">
@@ -395,6 +426,7 @@
         <div class="card-head"><h3>库存与到期提醒</h3></div>
         <div class="pantry-toolbar">
           <input type="text" id="pSearch" placeholder="🔍 搜索食品名称" />
+          <button type="button" class="btn primary mini" id="btnShopList">🛒 采购清单</button>
           <select id="pSort">
             <option value="exp-asc">到期时间升序</option>
             <option value="add-desc">入库时间倒序</option>
@@ -431,6 +463,23 @@
         <div class="modal-foot">
           <button class="btn primary" id="btnConsumePart">部分消耗</button>
           <button class="btn" id="btnConsumeAll">全部消耗</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 低库存采购清单弹窗 -->
+    <div class="modal" id="shopModal">
+      <div class="modal-box" style="max-width:480px">
+        <div class="modal-head"><h3>🛒 低库存采购清单</h3><button class="modal-close" data-close="#shopModal">×</button></div>
+        <div class="modal-body">
+          <p class="hint">自动汇总「剩余数量 ≤ 低库存阈值」的食材。勾选需要购买的，可一键复制或导出。</p>
+          <div id="shopListBox"></div>
+          <div id="shopEmpty" class="empty" style="display:none">当前没有低于阈值的食材 🎉</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" id="btnShopCopy">📋 复制清单</button>
+          <button class="btn" id="btnShopExport">⬇ 导出 txt</button>
+          <button class="btn primary" data-close="#shopModal">关闭</button>
         </div>
       </div>
     </div>

@@ -533,7 +533,13 @@ async function syncNow() {
 /* ---------- 工具 ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-function todayStr(d = new Date()) { return d.toISOString().slice(0, 10); }
+function ymd(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+function todayStr(d = new Date()) { return ymd(d); }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
@@ -1451,6 +1457,7 @@ $("#antiRefresh").addEventListener("click", () => {
 let charts = {};
 function renderDashboard() {
   const kpis = $("#kpiCards");
+  renderTodayOverview();
   const set = checkedDays("all");
   const ym = todayStr().slice(0, 7);
   const monthDays = [...set].filter(x => x.startsWith(ym)).length;
@@ -1498,7 +1505,7 @@ function daysKcal(cat, n) {
 }
 function getWeekKey(d) {
   const tmp = new Date(d); const day = (tmp.getDay() + 6) % 7;
-  tmp.setDate(tmp.getDate() - day); return tmp.toISOString().slice(0, 10);
+  tmp.setDate(tmp.getDate() - day); return ymd(tmp);
 }
 function last30Checkin(set) {
   const labels = [], vals = [];
@@ -1508,6 +1515,48 @@ function last30Checkin(set) {
   }
   return { labels, vals };
 }
+
+/* 今日总览聚合卡：一屏看全今日运动打卡 / 待复习单词 / 临期食材 / 今日热量 */
+function setToCell(id, val, color, sub) {
+  const el = $("#" + id);
+  if (!el) return;
+  const v = el.querySelector(".to-val"); if (v) { v.textContent = val; if (color) v.style.color = color; }
+  const s = el.querySelector(".to-sub"); if (s) s.textContent = sub || "";
+}
+function renderTodayOverview() {
+  const box = $("#todayOverview");
+  if (!box) return;
+  const t = todayStr();
+  $("#toDate").textContent = t;
+
+  // 1) 运动打卡（gym 分类）+ 连续天数
+  const gymDays = new Set(S.checkins.filter(c => c.cat === "gym").map(c => c.date));
+  const checkedToday = gymDays.has(t);
+  let streak = 0; { let d = new Date(t); while (gymDays.has(ymd(d))) { streak++; d.setDate(d.getDate() - 1); } }
+  setToCell("toCheckin", checkedToday ? "✅ 已打卡" : "⬜ 未打卡",
+    checkedToday ? "#2f9e44" : "#e8590c",
+    streak > 0 ? "连续 " + streak + " 天" : "今天动一动～");
+
+  // 2) 待复习单词（word1800：due 时间戳 <= 现在）
+  const cards = (S.word1800 && S.word1800.cards) || {};
+  let due = 0;
+  Object.keys(cards).forEach(k => { const c = cards[k]; if (c && c.due && c.due <= Date.now()) due++; });
+  setToCell("toWords", due + " 个", due > 0 ? "#e8590c" : "#2f9e44", due > 0 ? "去复习 →" : "已全部掌握");
+
+  // 3) 临期 / 过期食材
+  const expiring = S.pantry.filter(x => { const s = pantryStatus(x).key; return s === "danger" || s === "over"; }).length;
+  const over = S.pantry.filter(x => pantryStatus(x).key === "over").length;
+  setToCell("toPantry", expiring + " 件", expiring > 0 ? "#e8590c" : "#2f9e44", over > 0 ? over + " 件已过期" : "状态良好");
+
+  // 4) 今日热量 vs 目标
+  const day = S.foods.filter(f => f.date === t);
+  const kcal = day.reduce((a, f) => a + (f.kcal || 0), 0);
+  let target = "--";
+  if (S.profile) target = calcMacros(calcTDEE(S.profile), nutGoal()).cal;
+  let sub = target === "--" ? "未设目标" : ("目标 " + target + " kcal");
+  setToCell("toNutrition", kcal + " kcal", "", sub);
+}
+
 function drawChart(id, type, labels, data, label, color) {
   if (charts[id]) charts[id].destroy();
   const ctx = $("#" + id); if (!ctx) return;
@@ -1834,7 +1883,7 @@ function w18Browse() {
 }
 let w18q = [], w18i = 0, w18Retries = {};
 const W18IVAL = [1, 2, 4, 7, 15, 30];
-function addDaysStr(base, n) { const d = new Date(base + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+function addDaysStr(base, n) { const d = new Date(base + "T00:00:00"); d.setDate(d.getDate() + n); return ymd(d); }
 function w18BuildQueue(reviewOnly) {
   const t = todayStr(), cards = S.word1800.cards, all = window.WORDS1800 || [];
   const review = [], fresh = [];
@@ -1996,11 +2045,11 @@ function pantryExpiry(it) {
   if (it.expDate) return it.expDate;
   if (it.shelfDays && it.buyDate) {
     const d = new Date(it.buyDate); d.setDate(d.getDate() + +it.shelfDays);
-    return d.toISOString().slice(0, 10);
+    return ymd(d);
   }
   if (it.exp && it.buy) { // 旧数据兜底
     const d = new Date(it.buy); d.setDate(d.getDate() + +it.exp);
-    return d.toISOString().slice(0, 10);
+    return ymd(d);
   }
   return null;
 }
@@ -2040,7 +2089,7 @@ function setPantryMode(mode) {
     if (shelfIn.value && $("#pBuy").value) {
       const d = new Date($("#pBuy").value);
       d.setDate(d.getDate() + parseInt(shelfIn.value, 10));
-      expIn.value = d.toISOString().slice(0, 10);
+      expIn.value = ymd(d);
     }
   } else {
     shelfLabel.classList.remove("disabled");
@@ -2055,6 +2104,50 @@ function setPantryMode(mode) {
     }
   }
 }
+/* 拍照入库：把图片压缩成缩略图 dataURL 暂存，入库时写入 item.photo */
+let pendingPhoto = null;
+function handlePantryPhoto(file) {
+  if (!file) { pendingPhoto = null; const w = $("#pPhotoPreviewWrap"); if (w) w.style.display = "none"; return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 240;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      pendingPhoto = c.toDataURL("image/jpeg", 0.7);
+      const p = $("#pPhotoPreview"); if (p) p.src = pendingPhoto;
+      const w = $("#pPhotoPreviewWrap"); if (w) w.style.display = "block";
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearPantryPhoto() { pendingPhoto = null; const inp = $("#pPhoto"); if (inp) inp.value = ""; const w = $("#pPhotoPreviewWrap"); if (w) w.style.display = "none"; }
+/* 条码快速补货：输入条码后自动套用同名食材的历史填写，省去重复录入 */
+function onBarcodeInput() {
+  const code = $("#pBarcode").value.trim();
+  if (!code) return;
+  const match = S.pantry.find(x => x.barcode && x.barcode === code);
+  if (match) {
+    if (!$("#pName").value) $("#pName").value = match.name || "";
+    if (!$("#pQtyUnit").value) $("#pQtyUnit").value = match.qtyUnit || "";
+    if (!$("#pStorage").value) $("#pStorage").value = match.storage || "";
+    if (!$("#pCategory").value) $("#pCategory").value = match.category || "";
+    if (match.lowThreshold != null && match.lowThreshold !== "" && !$("#pLow").value) $("#pLow").value = match.lowThreshold;
+    toast("已按条码自动填充「" + match.name + "」");
+  }
+}
+/* 低库存判定：剩余数量 ≤ 阈值 */
+function pantryLowStock(it) {
+  if (it.lowThreshold == null || it.lowThreshold === "") return false;
+  const thr = parseFloat(it.lowThreshold);
+  if (!(thr >= 0)) return false;
+  return pantryStock(it) <= thr;
+}
+
 function bindPantryMode() {
   $("#pModeShelf").addEventListener("change", () => setPantryMode("shelf"));
   $("#pModeDate").addEventListener("change", () => setPantryMode("date"));
@@ -2068,7 +2161,7 @@ function bindPantryMode() {
   $("#pShelf").addEventListener("input", () => {
     if ($("#pModeShelf").checked && $("#pBuy").value && $("#pShelf").value) {
       const d = new Date($("#pBuy").value); d.setDate(d.getDate() + parseInt($("#pShelf").value, 10));
-      $("#pExp").value = d.toISOString().slice(0, 10);
+      $("#pExp").value = ymd(d);
     }
   });
   $("#pExp").addEventListener("input", () => {
@@ -2102,7 +2195,7 @@ function validatePantryForm(allowExpired) {
     if (isNaN(s) || s <= 0) return "保质期天数必须为正整数";
     shelfDays = s;
     const d = new Date(buy); d.setDate(d.getDate() + s);
-    expDate = d.toISOString().slice(0, 10);
+    expDate = ymd(d);
   } else {
     expDate = $("#pExp").value;
     if (!expDate) return "请选择到期日期";
@@ -2113,7 +2206,9 @@ function validatePantryForm(allowExpired) {
   if (new Date(expDate) < new Date(todayStr()) && !allowExpired) {
     return "EXPIRED_CONFIRM";
   }
-  return { name, qtyNum, unit, buy, expDate, shelfDays, storage: $("#pStorage").value.trim(), category: $("#pCategory").value.trim(), note: $("#pNote").value.trim() };
+  const lowRaw = $("#pLow").value.trim();
+  const lowThreshold = lowRaw === "" ? "" : (parseFloat(lowRaw) || 0);
+  return { name, qtyNum, unit, buy, expDate, shelfDays, storage: $("#pStorage").value.trim(), category: $("#pCategory").value.trim(), note: $("#pNote").value.trim(), barcode: $("#pBarcode").value.trim(), lowThreshold };
 }
 
 /* 收集/填充表单 */
@@ -2126,6 +2221,7 @@ function resetPantryForm() {
   $("#pCancelEdit").style.display = "none";
   setPantryMode("shelf");
   showPantryError("");
+  clearPantryPhoto();
 }
 function fillPantryForm(it) {
   $("#pId").value = it.id;
@@ -2136,6 +2232,11 @@ function fillPantryForm(it) {
   $("#pStorage").value = it.storage || "";
   $("#pCategory").value = it.category || "";
   $("#pNote").value = it.note || "";
+  $("#pBarcode").value = it.barcode || "";
+  $("#pLow").value = it.lowThreshold != null ? it.lowThreshold : "";
+  pendingPhoto = it.photo || null;
+  const p = $("#pPhotoPreview"); const w = $("#pPhotoPreviewWrap");
+  if (p && w) { if (pendingPhoto) { p.src = pendingPhoto; w.style.display = "block"; } else { w.style.display = "none"; } }
   if (it.mode === "date") {
     $("#pModeDate").checked = true;
     $("#pExp").value = it.expDate || "";
@@ -2218,6 +2319,7 @@ function submitPantryCore(allowExpired) {
     it.qty = v.qtyNum + v.unit;
     it.buyDate = v.buy; it.expDate = v.expDate; it.shelfDays = v.shelfDays; it.mode = $("#pModeDate").checked ? "date" : "shelf";
     it.storage = v.storage; it.category = v.category; it.note = v.note;
+    it.barcode = v.barcode; it.lowThreshold = v.lowThreshold; it.photo = pendingPhoto;
     it.updatedAt = now;
     it.logs.push({ action: "edit", time: now, qty: v.qtyNum, note: "编辑" });
     toast(`"${oldName}" 已更新`);
@@ -2227,6 +2329,7 @@ function submitPantryCore(allowExpired) {
       name: v.name, qtyNum: v.qtyNum, qtyUnit: v.unit, qty: v.qtyNum + v.unit,
       buyDate: v.buy, expDate: v.expDate, shelfDays: v.shelfDays, mode: $("#pModeDate").checked ? "date" : "shelf",
       storage: v.storage, category: v.category, note: v.note,
+      barcode: v.barcode, lowThreshold: v.lowThreshold, photo: pendingPhoto,
       consumed: 0,
       logs: [{ action: "create", time: now, qty: v.qtyNum, note: "入库" }]
     };
@@ -2281,6 +2384,7 @@ function renderPantryStats() {
   const danger = S.pantry.filter(x => pantryStatus(x).key === "danger").length;
   const warn = S.pantry.filter(x => pantryStatus(x).key === "warn").length;
   const ok = S.pantry.filter(x => pantryStatus(x).key === "ok").length;
+  const low = S.pantry.filter(x => pantryLowStock(x)).length;
   box.innerHTML = `
     <div class="card-head"><h3>库存概览</h3></div>
     <div class="pantry-kpi">
@@ -2289,6 +2393,7 @@ function renderPantryStats() {
       <div class="pk-item warn"><div class="pk-v">${warn}</div><div class="pk-l">注意</div></div>
       <div class="pk-item danger"><div class="pk-v">${danger}</div><div class="pk-l">临期</div></div>
       <div class="pk-item over"><div class="pk-v">${over}</div><div class="pk-l">已过期</div></div>
+      <div class="pk-item low"><div class="pk-v">${low}</div><div class="pk-l">低库存</div></div>
     </div>`;
 }
 
@@ -2315,9 +2420,11 @@ function renderPantry() {
     const exp = pantryExpiry(it);
     const remain = pantryRemainDays(it);
     const remainText = remain === null ? "" : (remain < 0 ? `已过期 ${Math.abs(remain)} 天` : `剩余 ${remain} 天`);
+    const low = pantryLowStock(it);
+    const photo = it.photo ? `<img class="pr-photo" src="${it.photo}" alt="${esc(it.name)}" />` : "";
     return `<div class="pantry-row ${st.key}">
       <div class="pr-left">
-        <div class="pr-name">${esc(it.name)} <span class="pr-tag ${st.cls}">${st.label}</span></div>
+        <div class="pr-name">${esc(it.name)} <span class="pr-tag ${st.cls}">${st.label}</span>${low ? ` <span class="pr-tag tag-low">低库存</span>` : ""}</div>
         <div class="pr-meta">
           <span>数量：${pantryStockText(it)}</span>
           <span>储存：${esc(it.storage || "—")}</span>
@@ -2327,8 +2434,10 @@ function renderPantry() {
           <span class="${st.cls}">${remainText}</span>
           ${it.category ? `<span class="pr-cat">${esc(it.category)}</span>` : ""}
         </div>
+        ${it.barcode ? `<div class="pr-meta"><span class="pr-barcode">条码：${esc(it.barcode)}</span></div>` : ""}
         ${it.note ? `<div class="pr-note">${esc(it.note)}</div>` : ""}
       </div>
+      ${photo ? `<div class="pr-photo-wrap">${photo}</div>` : ""}
       <div class="pr-actions">
         <button class="btn sm" data-edit-p="${it.id}">编辑</button>
         <button class="btn sm" data-consume-p="${it.id}">消耗</button>
@@ -2352,12 +2461,64 @@ $("#pFilterStatus").addEventListener("change", renderPantry);
 $("#btnConsumePart").addEventListener("click", () => doConsume(false));
 $("#btnConsumeAll").addEventListener("click", () => doConsume(true));
 $$('[data-close="#consumeModal"]').forEach(b => b.addEventListener("click", () => closeModal("#consumeModal")));
+$("#pPhoto").addEventListener("change", e => handlePantryPhoto(e.target.files && e.target.files[0]));
+$("#pPhotoClear").addEventListener("click", clearPantryPhoto);
+$("#pBarcode").addEventListener("change", onBarcodeInput);
+$("#btnShopList").addEventListener("click", openShopList);
+$("#btnShopCopy").addEventListener("click", copyShopList);
+$("#btnShopExport").addEventListener("click", exportShopList);
+$$('[data-close="#shopModal"]').forEach(b => b.addEventListener("click", () => closeModal("#shopModal")));
 bindPantryMode();
 $("#pBuy").value = todayStr();
 setPantryMode("shelf");
 
+/* 低库存采购清单 */
+let shopChecked = {};
+function openShopList() { shopChecked = {}; renderShopList(); openModal("#shopModal"); }
+function renderShopList() {
+  const low = S.pantry.filter(x => pantryLowStock(x));
+  const box = $("#shopListBox");
+  const empty = $("#shopEmpty");
+  if (!low.length) { box.innerHTML = ""; if (empty) empty.style.display = "block"; return; }
+  if (empty) empty.style.display = "none";
+  box.innerHTML = low.map(it => {
+    const checked = shopChecked[it.id] ? "checked" : "";
+    return `<label class="shop-item"><input type="checkbox" data-shop="${it.id}" ${checked} />`
+      + `<span class="si-name">${esc(it.name)}</span>`
+      + `<span class="si-meta">剩 ${pantryStockText(it)} / 阈值 ${it.lowThreshold}${it.qtyUnit || ""}</span></label>`;
+  }).join("");
+  $$("[data-shop]", box).forEach(c => c.addEventListener("change", () => { shopChecked[c.dataset.shop] = c.checked; }));
+}
+function shopListText() {
+  const low = S.pantry.filter(x => pantryLowStock(x) && shopChecked[x.id]);
+  if (!low.length) return "";
+  const lines = ["【采购清单】 生成于 " + todayStr()];
+  low.forEach(it => lines.push("- " + it.name + "（剩 " + pantryStockText(it) + "，阈值 " + it.lowThreshold + (it.qtyUnit || "") + "）"));
+  return lines.join("\n");
+}
+function copyShopList() {
+  const txt = shopListText();
+  if (!txt) { toast("请先勾选要购买的食材"); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast("已复制到剪贴板 ✓"), () => fallbackCopy(txt));
+  else fallbackCopy(txt);
+}
+function fallbackCopy(txt) {
+  const ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); toast("已复制到剪贴板 ✓"); } catch (e) { toast("复制失败，请手动选择"); }
+  document.body.removeChild(ta);
+}
+function exportShopList() {
+  const txt = shopListText();
+  if (!txt) { toast("请先勾选要购买的食材"); return; }
+  const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "采购清单_" + todayStr() + ".txt";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 // 把 pantry 测试/外部需要的函数挂到 window（不影响正常业务）
-window.__pantry = { $, S, switchModule, setPantryMode, editPantry, openConsume, doConsume, pantryStatus, pantryStock, pantryExpiry, pantryRemainDays, deletePantry, renderPantry, validatePantryForm };
+window.__pantry = { $, S, switchModule, setPantryMode, editPantry, openConsume, doConsume, pantryStatus, pantryStock, pantryExpiry, pantryRemainDays, deletePantry, renderPantry, validatePantryForm, pantryLowStock, openShopList };
 
 /* ============================================================
    图片去水印（纯 JS 本地处理）
@@ -2552,7 +2713,7 @@ function boot() {
   const safe = (f) => { try { f(); } catch (e) { console.error("初始渲染出错:", e); } };
   safe(renderFitness); safe(renderNutrition); safe(renderResources); safe(renderWeights);
   safe(renderGoals); safe(renderReminds); safe(refreshChips); safe(renderTrackers);
-  safe(renderEnglish); safe(renderPantry);
+  safe(renderEnglish); safe(renderPantry); safe(renderTodayOverview);
   try {
     const ba = localStorage.getItem("fitdesk:backupAt"); if (ba) $("#bkLast").innerHTML = `<div class="hint">上次备份：${ba}</div>`;
     fillSyncForm();

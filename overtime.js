@@ -149,6 +149,26 @@ function saveAdjust(a) {
 function sumAllowance(a) { return ALLOWANCE_KEYS.reduce((s, k) => s + (parseFloat(a[k]) || 0), 0); }
 function sumDeduction(a) { return DEDUCTION_KEYS.reduce((s, k) => s + (parseFloat(a[k]) || 0), 0); }
 
+/* 简易个税估算（月度综合所得，未含专项附加扣除）。
+   应纳税所得额 = 应发 - 社保个人 - 公积金个人 - 起征点(默认5000)
+   按超额累进税率表：tax = 应纳税所得额 × 税率 - 速算扣除数 */
+function estimateMonthlyTax(taxable) {
+  if (!(taxable > 0)) return 0;
+  const brackets = [
+    [3000, 0.03, 0],
+    [12000, 0.10, 210],
+    [25000, 0.20, 1410],
+    [35000, 0.25, 2660],
+    [55000, 0.30, 4410],
+    [80000, 0.35, 7160],
+    [Infinity, 0.45, 15160]
+  ];
+  for (const [cap, rate, quick] of brackets) {
+    if (taxable <= cap) return Math.max(0, taxable * rate - quick);
+  }
+  return 0;
+}
+
 /* ============================================================
    月份锁定
    ============================================================ */
@@ -496,10 +516,18 @@ function calcMonthSalary(year, month) {
   const baseSalary = SETTINGS.baseSalary || 0;
   const adj = getAdjust(year, month);
   const allowance = sumAllowance(adj);
-  const deduction = sumDeduction(adj);
   const gross = baseSalary + allowance + otPay;
+  // 社保个人 / 公积金个人：优先取当月调整值，未填则回退到全局设置（SETTINGS），
+  // 这样在「设置」里填一次就能每月自动扣除，无需每月再手动填一遍
+  const social = parseFloat(adj.socialInsurance) || parseFloat(SETTINGS.socialInsurance) || 0;
+  const fund = parseFloat(adj.housingFund) || parseFloat(SETTINGS.housingFund) || 0;
+  const otherDed = parseFloat(adj.otherDeduction) || 0;
+  const threshold = parseFloat(SETTINGS.taxThreshold) || 5000;
+  const taxable = Math.max(0, gross - social - fund - threshold);
+  const estTax = estimateMonthlyTax(taxable);
+  const deduction = social + fund + otherDed + estTax;
   const net = gross - deduction;
-  return { baseSalary, allowance, otPay, gross, deduction, net, otHours, compoffHours, freeHours };
+  return { baseSalary, allowance, otPay, gross, deduction, net, social, fund, estTax, otHours, compoffHours, freeHours };
 }
 
 function renderMonthStats() {
@@ -628,7 +656,11 @@ function renderAdjustInputs() {
   const a = getAdjust(y, m);
   ALLOWANCE_KEYS.concat(DEDUCTION_KEYS).forEach(k => {
     const el = $("#" + ADJ_ID_MAP[k]);
-    if (el) el.value = a[k] || "";
+    if (!el) return;
+    // 社保/公积金当月未单独设置时，回显全局设置（SETTINGS），让用户看到"已默认按月扣除"
+    let v = a[k];
+    if ((k === "socialInsurance" || k === "housingFund") && !(v > 0)) v = SETTINGS[k] || "";
+    el.value = v || "";
   });
 }
 

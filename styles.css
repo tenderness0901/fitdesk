@@ -200,6 +200,16 @@ select.mini { padding: 5px 20px 5px 8px; }
 .stat-value { font-size: 22px; font-weight: 700; color: #ff6b35; }
 .stat-value small { font-size: 12px; color: #888; font-weight: 400; margin-left: 2px; }
 
+/* 今日总览聚合卡 */
+.today-overview { background: linear-gradient(135deg, #fff7f2, #f3f8ff); border: 1px solid #ffe0cc; }
+.today-overview .to-date { font-size: 12px; color: #999; font-weight: 400; }
+.to-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.to-cell { background: #fff; border-radius: 10px; padding: 12px 10px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.to-ico { font-size: 22px; line-height: 1; }
+.to-label { font-size: 12px; color: #888; margin: 4px 0 2px; }
+.to-val { font-size: 18px; font-weight: 700; color: #ff6b35; }
+.to-sub { font-size: 11px; color: #aaa; margin-top: 2px; min-height: 14px; }
+
 /* 子导航 */
 .subnav {
   display: flex;
@@ -434,6 +444,7 @@ select.mini { padding: 5px 20px 5px 8px; }
   .grid-2 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(3, 1fr); }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .to-grid { grid-template-columns: repeat(2, 1fr); }
   /* 表单行：移动端尽量并排，不全部单列 */
   .row-2 { grid-template-columns: repeat(2, 1fr); }
   .row-3 { grid-template-columns: repeat(3, 1fr); }
@@ -657,6 +668,20 @@ select.mini { padding: 5px 20px 5px 8px; }
 .pantry-kpi .pk-item.warn .pk-v { color: #faad14; }
 .pantry-kpi .pk-item.danger .pk-v { color: #ff7a45; }
 .pantry-kpi .pk-item.over .pk-v { color: #ff4d4f; }
+.pantry-kpi .pk-item.low .pk-v { color: #722ed1; }
+
+/* 食材照片 / 条码 / 低库存标签 */
+.pantry-row .pr-photo-wrap { flex-shrink: 0; }
+.pantry-row .pr-photo { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid #eee; }
+.pr-tag.tag-low { background: #f9f0ff; color: #722ed1; }
+.pantry-row .pr-barcode { color: #8c8c8c; font-size: 11px; }
+.pantry-row .pr-barcode::before { content: "🔖 "; }
+
+/* 采购清单弹窗 */
+.shop-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #fafafa; margin-bottom: 6px; }
+.shop-item input[type=checkbox] { width: 16px; height: 16px; flex-shrink: 0; }
+.shop-item .si-name { font-weight: 600; color: #222; }
+.shop-item .si-meta { font-size: 11px; color: #999; margin-left: auto; }
 
 /* 库存工具栏：search 占大头，4 个筛选 select 等分，自动换行 */
 .pantry-toolbar {
