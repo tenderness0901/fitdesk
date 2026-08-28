@@ -1711,7 +1711,12 @@ function pauseArticle() {
   if (window.speechSynthesis) {
     try { window.speechSynthesis.pause(); } catch(e) {}
   }
-  if (window.__articleAudio) window.__articleAudio.state = 'paused';
+  if (window.__articleAudio) {
+    window.__articleAudio.state = 'paused';
+    // 冻结看门狗：暂停期间绝不能让定时器超时后强行跳下一句。
+    // 注意 Chrome pause() 后 speechSynthesis.speaking 仍为 true，故必须在此 clearTimeout。
+    if (window.__articleAudio.__ttsTimer) clearTimeout(window.__articleAudio.__ttsTimer);
+  }
   clearWordHighlight();
   setArticleButtonState('paused');
 }
@@ -1790,6 +1795,7 @@ function speakArticleFrom(startIdx) {
     window.__articleAudio.__ttsTimer = setTimeout(function(){
       if (advanced) return;
       if (window.__audioSession !== mySession) return;
+      if (window.__articleAudio && window.__articleAudio.state !== 'playing') return; // 已暂停/停止，冻结
       if (!window.speechSynthesis || !window.speechSynthesis.speaking) return; // 已正常结束，忽略
       try { window.speechSynthesis.cancel(); } catch(e){}
       advanceToNext();
@@ -1849,6 +1855,7 @@ function restartFrom(i) {
     window.__articleAudio.__ttsTimer = setTimeout(function(){
       if (advancedR) return;
       if (window.__audioSession !== mySession) return;
+      if (window.__articleAudio && window.__articleAudio.state !== 'playing') return;
       if (!window.speechSynthesis || !window.speechSynthesis.speaking) return;
       try { window.speechSynthesis.cancel(); } catch(e){}
       advanceToNextR();
