@@ -562,11 +562,15 @@ function renderMonthStats() {
 function renderYearStats() {
   const y = $("#statYear").value;
   let totalBase = 0, totalAllowance = 0, totalOtPay = 0, totalDeduction = 0, totalNet = 0;
+  let totalActual = 0, totalActualCnt = 0;
   let totalHours = 0, compoffHours = 0, freeHours = 0;
   const monthly = [];
   for (let m = 1; m <= 12; m++) {
     const s = calcMonthSalary(y, pad2(m));
-    monthly.push({ m, ...s });
+    const sal = SALARIES.find(x => x.year === y && x.month === pad2(m));
+    const actual = sal ? sal.actual : null;
+    if (actual != null) { totalActual += actual; totalActualCnt++; }
+    monthly.push({ m, actual, ...s });
     totalBase += s.baseSalary;
     totalAllowance += s.allowance;
     totalOtPay += s.otPay;
@@ -586,22 +590,25 @@ function renderYearStats() {
 
   let rows = "";
   for (const mo of monthly) {
-    if (mo.otHours === 0 && mo.compoffHours === 0 && mo.freeHours === 0 && mo.allowance === 0 && mo.deduction === 0) continue;
+    if (mo.otHours === 0 && mo.compoffHours === 0 && mo.freeHours === 0 && mo.allowance === 0 && mo.deduction === 0 && mo.actual == null) continue;
     rows += "<tr><td class='mt-month'>" + mo.m + " 月</td>" +
       "<td>" + mo.baseSalary.toFixed(0) + "</td>" +
       "<td>" + mo.allowance.toFixed(0) + "</td>" +
       "<td>" + mo.otPay.toFixed(0) + "</td>" +
       "<td>" + mo.gross.toFixed(0) + "</td>" +
       "<td>" + mo.deduction.toFixed(0) + "</td>" +
-      "<td class='mt-pay'>" + mo.net.toFixed(0) + "</td></tr>";
+      "<td class='mt-pay'>" + mo.net.toFixed(0) + "</td>" +
+      "<td class='mt-actual'>" + (mo.actual != null ? mo.actual.toFixed(0) : "—") + "</td></tr>";
   }
-  if (!rows) rows = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">全年无记录</td></tr>';
+  if (!rows) rows = '<tr><td colspan="8" style="text-align:center;color:var(--muted)">全年无记录</td></tr>';
+  const actSum = totalActualCnt > 0 ? totalActual.toFixed(0) : "—";
   rows += '<tr class="mt-total"><td>合计</td><td>' + totalBase.toFixed(0) + "</td>" +
     "<td>" + totalAllowance.toFixed(0) + "</td><td>" + totalOtPay.toFixed(0) + "</td>" +
     "<td>" + (totalBase + totalAllowance + totalOtPay).toFixed(0) + "</td>" +
     "<td>" + totalDeduction.toFixed(0) + "</td>" +
-    '<td class="mt-pay">' + totalNet.toFixed(0) + "</td></tr>";
-  $("#yearMonthlyTable").innerHTML = '<table><thead><tr><th>月份</th><th>基本工资</th><th>补贴</th><th>加班费</th><th>应发</th><th>扣减</th><th>预估实发</th></tr></thead><tbody>' + rows + "</tbody></table>";
+    '<td class="mt-pay">' + totalNet.toFixed(0) + "</td>" +
+    '<td class="mt-actual" title="已录入 ' + totalActualCnt + ' 个月">' + actSum + "</td></tr>";
+  $("#yearMonthlyTable").innerHTML = '<table><thead><tr><th>月份</th><th>基本工资</th><th>补贴</th><th>加班费</th><th>应发</th><th>扣减</th><th>预估实发</th><th>实发</th></tr></thead><tbody>' + rows + "</tbody></table>";
 }
 
 function showStatView(view) {

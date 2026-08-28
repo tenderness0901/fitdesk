@@ -234,6 +234,9 @@
 }
 .ov-monthly-table thead th{background:#f5f6f8;font-weight:700;color:#555;font-size:12px;}
 .ov-monthly-table tbody tr:hover{background:#f9f9f9;}
+.ov-monthly-table td.mt-pay{color:#e8772e;font-weight:600;}
+.ov-monthly-table td.mt-actual{color:#2a8f4a;font-weight:600;}
+.ov-monthly-table tr.mt-total td.mt-actual{color:#1f7a3c;background:#eaf7ee;}
 
 /* ===== 移动端 ===== */
 @media (max-width:768px){
